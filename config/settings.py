@@ -141,3 +141,7 @@ OSRM_SERVERS = os.environ.get(
     'OSRM_SERVERS',
     'https://router.project-osrm.org,https://routing.openstreetmap.de/routed-car',
 ).split(',')
+
+# How far from the route a station may be to count, in miles, by how it was placed.
+# Town-centre placements can be several miles off the highway, so they get more room.
+CORRIDOR_MILES = {'exit': 10, 'town': 10, 'manual': 10}
