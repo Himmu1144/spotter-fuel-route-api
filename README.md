@@ -39,4 +39,4 @@ python scripts/build_places.py     # US place list from GeoNames -> data/us_plac
 python scripts/build_stations.py   # clean the price file and place each station -> data/stations.csv
 ```
 
-Cleaning: 620 Canadian rows dropped (trips start and finish in the USA, and the file doesn't say what currency those prices are in); 905 duplicate rows merged (one row per station ID, at its lowest listed price); stray spaces trimmed. 6,626 US stations, all placed: 6,604 at their town's centre, 22 from hand-checked lookups in `data/place_fixes.csv`.
+Cleaning: 620 Canadian rows dropped (trips start and finish in the USA, and the file doesn't say what currency those prices are in); 905 duplicate rows merged into one row per station ID, priced at the median of its listed prices (there are no dates to pick the latest, and the lowest would favour stations that are listed more often); stray spaces trimmed. 6,626 US stations, all placed: 6,605 at their town's centre, 21 from hand-checked lookups in `data/place_fixes.csv`.

@@ -33,9 +33,9 @@ class ReadPricesTests(SimpleTestCase):
         self.path = Path(tempfile.mkdtemp()) / 'prices.csv'
         self.path.write_text(PRICE_ROWS)
 
-    def test_keeps_one_row_per_station_at_its_lowest_price(self):
+    def test_keeps_one_row_per_station_at_its_median_price(self):
         stations = read_prices(self.path, report=lambda message: None)
-        self.assertEqual(stations[105]['price_per_gallon'], Decimal('3.269'))
+        self.assertEqual(stations[105]['price_per_gallon'], Decimal('3.339'))
 
     def test_drops_stations_outside_the_us_and_trims_text(self):
         stations = read_prices(self.path, report=lambda message: None)
@@ -48,4 +48,4 @@ class LoadStationsTests(TestCase):
         call_command('load_stations', stdout=StringIO())
         call_command('load_stations', stdout=StringIO())
         self.assertEqual(FuelStation.objects.count(), 6626)
-        self.assertEqual(FuelStation.objects.get(opis_id=105).price_per_gallon, Decimal('3.269'))
+        self.assertEqual(FuelStation.objects.get(opis_id=105).price_per_gallon, Decimal('3.319'))

@@ -2,7 +2,7 @@
 
 One-time step, run after build_places.py. Reads the price file as provided and:
   1. trims stray spaces and drops rows outside the 50 states and DC,
-  2. keeps one row per OPIS station ID, at its lowest listed price,
+  2. keeps one row per OPIS station ID, at the median of its listed prices,
   3. places each station at its town's centre using the offline place list,
      or a hand-checked fix from data/place_fixes.csv for towns the list lacks.
 The output is committed and loaded with `python manage.py load_stations`.
@@ -11,6 +11,7 @@ The output is committed and loaded with `python manage.py load_stations`.
 """
 
 import csv
+import statistics
 import gzip
 import sys
 from collections import Counter
@@ -37,8 +38,13 @@ FIELDS = ['opis_id', 'name', 'address', 'city', 'state', 'rack_id', 'price_per_g
 
 
 def read_prices(path=PRICE_FILE, report=print):
-    """One cleaned row per station ID, at the lowest price the file lists for it."""
-    stations, rows, foreign = {}, 0, Counter()
+    """One cleaned row per station ID, priced at the median of the prices the file lists for it.
+
+    Some stations appear several times with different prices and no dates. The lowest
+    would favour stations listed more often (more chances to look cheap); the median
+    treats every station the same and ignores a single odd value.
+    """
+    stations, prices, rows, foreign = {}, {}, 0, Counter()
     with open(path, encoding='utf-8-sig', newline='') as f:
         for raw in csv.DictReader(f):
             rows += 1
@@ -55,9 +61,10 @@ def read_prices(path=PRICE_FILE, report=print):
                 'rack_id': int(row['Rack ID']),
                 'price_per_gallon': Decimal(row['Retail Price']),
             }
-            kept = stations.get(station['opis_id'])
-            if kept is None or station['price_per_gallon'] < kept['price_per_gallon']:
-                stations[station['opis_id']] = station
+            stations.setdefault(station['opis_id'], station)
+            prices.setdefault(station['opis_id'], []).append(station['price_per_gallon'])
+    for opis_id, station in stations.items():
+        station['price_per_gallon'] = statistics.median(prices[opis_id])
     report(f'{rows} rows read; {sum(foreign.values())} outside the US dropped ({", ".join(sorted(foreign))})')
     report(f'{len(stations)} US stations after keeping one row per ID')
     return stations
