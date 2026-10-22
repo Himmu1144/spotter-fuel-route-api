@@ -21,6 +21,25 @@ Check it's up: <http://127.0.0.1:8000/api/health/> (shows how many stations are 
 
 Runs on SQLite with no setup. To use Postgres instead, start one with `docker compose up -d` and set `DATABASE_URL` as shown in `.env.example`.
 
+## Use it
+
+```
+GET /api/route/?start=Seattle, WA&finish=Miami, FL
+```
+
+Returns, summary first:
+
+- `map_url`: open it in a browser to see the route and numbered fuel stops on a map
+- `summary`: distance, driving time, number of stops, fuel cost, gallons bought and used
+- `compared_to_cheapest`: what the absolute cheapest plan would cost, and how many stops it needs
+- `stops`: each stop in order, with its mile along the route, price, gallons and cost
+- `map`: the route and stops as GeoJSON (paste into geojson.io to view)
+- `meta`: which routing server answered, how many external calls were made, and where the time went
+
+Add `&mode=cheapest` for the absolute cheapest plan. The default, `balanced`, takes the fewest stops that cost no more than 1% above the cheapest: Seattle to Miami is 8 stops for $851.57, against 18 stops for $848.09.
+
+Errors come back as `{"error": {"code", "message"}}`: 400 for input it can't read, 422 when there's no road route or a stretch longer than one tank has no station, 502 when the routing service is down.
+
 ## What to send
 
 `start` and `finish` each take one of two formats:

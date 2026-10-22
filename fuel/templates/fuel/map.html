@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fuel route</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body, #map { height: 100%; margin: 0; font: 14px/1.4 system-ui, sans-serif; }
+    #panel { position: absolute; top: 12px; left: 56px; z-index: 1000; max-width: 340px;
+             background: #fff; padding: 12px 14px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.2); }
+    #panel h1 { font-size: 15px; margin: 0 0 6px; }
+    #panel p { margin: 2px 0; color: #333; }
+    #panel .error { color: #b00020; }
+    .end { width: 14px; height: 14px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+    .stop { background: #1565c0; color: #fff; border-radius: 50%; width: 24px; height: 24px;
+            line-height: 24px; text-align: center; font-weight: 600; border: 2px solid #fff;
+            box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="panel"><p>Planning the route...</p></div>
+  <script>
+    const map = L.map('map').setView([39.5, -98.35], 4);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }).addTo(map);
+    const panel = document.getElementById('panel');
+
+    function line(text, className) {
+      const p = document.createElement('p');
+      p.textContent = text;
+      if (className) p.className = className;
+      return p;
+    }
+
+    fetch('/api/route/' + window.location.search, { headers: { Accept: 'application/json' } })
+      .then(response => response.json())
+      .then(plan => {
+        panel.replaceChildren();
+        if (plan.error) {
+          panel.append(line(plan.error.message, 'error'));
+          return;
+        }
+        const s = plan.summary;
+        const title = document.createElement('h1');
+        title.textContent = `${plan.start.resolved} to ${plan.finish.resolved}`;
+        panel.append(
+          title,
+          line(`${s.distance_miles} miles, about ${s.drive_hours} hours of driving`),
+          line(`${s.stops} fuel stops, $${s.fuel_cost_usd.toFixed(2)} of fuel bought (${s.mode})`),
+          line(`Cheapest possible: $${plan.compared_to_cheapest.cheapest_cost_usd.toFixed(2)} with ` +
+               `${plan.compared_to_cheapest.cheapest_stops} stops`),
+        );
+        const route = L.geoJSON(plan.map.features.filter(f => f.properties.kind === 'route'),
+                                { style: { color: '#1565c0', weight: 4 } }).addTo(map);
+        [[plan.start, '#2e7d32'], [plan.finish, '#c62828']].forEach(([place, colour]) => {
+          L.marker([place.latitude, place.longitude], {
+            icon: L.divIcon({ className: '', html: `<div class="end" style="background:${colour}"></div>`, iconSize: [20, 20] }),
+          }).addTo(map).bindTooltip(place.resolved);
+        });
+        plan.stops.forEach(stop => {
+          const marker = L.marker([stop.latitude, stop.longitude], {
+            icon: L.divIcon({ className: '', html: `<div class="stop">${stop.order}</div>`, iconSize: [24, 24] }),
+          }).addTo(map);
+          const popup = document.createElement('div');
+          popup.append(
+            line(`${stop.order}. ${stop.name}`),
+            line(`${stop.city}, ${stop.state} · mile ${stop.mile}`),
+            line(`${stop.gallons} gal at $${stop.price_per_gallon.toFixed(3)} = $${stop.cost_usd.toFixed(2)}`),
+          );
+          marker.bindPopup(popup);
+        });
+        map.fitBounds(route.getBounds(), { paddingTopLeft: [380, 40], paddingBottomRight: [40, 40] });
+      })
+      .catch(() => panel.replaceChildren(line('Could not load the plan.', 'error')));
+  </script>
+</body>
+</html>
