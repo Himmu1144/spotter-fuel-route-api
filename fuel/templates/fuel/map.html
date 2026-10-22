@@ -51,7 +51,8 @@
         panel.append(
           title,
           line(`${s.distance_miles} miles, about ${s.drive_hours} hours of driving`),
-          line(`${s.stops} fuel stops, $${s.fuel_cost_usd.toFixed(2)} of fuel bought (${s.mode})`),
+          line(`${s.stops} fuel stops, $${s.fuel_bought_usd.toFixed(2)} of fuel bought on the way (${s.mode})`),
+          line(`Fuel for the whole trip: $${s.trip_fuel_cost_usd.toFixed(2)}`),
           line(`Cheapest possible: $${plan.compared_to_cheapest.cheapest_cost_usd.toFixed(2)} with ` +
                `${plan.compared_to_cheapest.cheapest_stops} stops`),
         );

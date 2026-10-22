@@ -1,7 +1,5 @@
-from io import StringIO
 from unittest import mock
 
-from django.core.management import call_command
 from django.test import TestCase
 
 from fuel.routing import Route, RouteNotFound, RoutingUnavailable
@@ -17,9 +15,7 @@ def straight_route(start, finish, miles):
 
 
 class RouteApiTests(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        call_command('load_stations', stdout=StringIO())
+    # The stations are already in the test database: `migrate` loads them.
 
     def get(self, **params):
         return self.client.get('/api/route/', params, HTTP_ACCEPT='application/json')
@@ -32,7 +28,11 @@ class RouteApiTests(TestCase):
         self.assertTrue(body['map_url'].startswith('http://testserver/map/?start=Chicago'))
         self.assertEqual(body['start']['resolved'], 'Chicago, IL')
         self.assertGreaterEqual(body['summary']['stops'], 1)
-        self.assertAlmostEqual(sum(s['cost_usd'] for s in body['stops']), body['summary']['fuel_cost_usd'], delta=0.05)
+        summary = body['summary']
+        self.assertAlmostEqual(sum(s['cost_usd'] for s in body['stops']), summary['fuel_bought_usd'], delta=0.05)
+        self.assertGreater(summary['trip_fuel_cost_usd'], summary['fuel_bought_usd'])
+        self.assertTrue(summary['plan'].startswith('balanced: the fewest stops within 1%'))
+        self.assertTrue(body['stops'][0]['price_basis'].startswith(('the one price', 'median of')))
         self.assertEqual(body['meta']['external_calls'], 1)
         self.assertEqual([f['geometry']['type'] for f in body['map']['features']][0], 'LineString')
         get_route.assert_called_once()
@@ -41,12 +41,15 @@ class RouteApiTests(TestCase):
     def test_reports_a_corrected_typo(self, get_route):
         body = self.get(start='Chicgo, IL', finish='Indianapolis, IN').json()
         self.assertEqual(body['start']['note'], 'Read "Chicgo, IL" as "Chicago, IL".')
-        self.assertEqual(body['summary']['stops'], 0)
+        # No stops, but the trip still burns fuel: the starting tank is priced, so the total is never a confusing $0.
+        self.assertEqual((body['summary']['stops'], body['summary']['fuel_bought_usd']), (0, 0))
+        self.assertGreater(body['summary']['trip_fuel_cost_usd'], 50)
 
     def test_bad_input_is_a_400_that_says_why(self):
         cases = [({'finish': 'Denver, CO'}, 'invalid_input'),
                  ({'start': 'Chicago, IL', 'finish': 'Denver, CO', 'mode': 'fastest'}, 'invalid_input'),
-                 ({'start': 'Springfield', 'finish': 'Denver, CO'}, 'place_not_found')]
+                 ({'start': 'Springfield', 'finish': 'Denver, CO'}, 'place_not_found'),
+                 ({'start': 'Xyzzy, CO', 'finish': 'Denver, CO'}, 'place_not_found')]
         for params, code in cases:
             with self.subTest(params=params):
                 response = self.get(**params)
@@ -62,8 +65,10 @@ class RouteApiTests(TestCase):
     def test_a_gap_longer_than_a_tank_is_a_422_naming_it(self, get_route):
         # The price list has no stations in central or northern California.
         response = self.get(start='Seattle, WA', finish='San Diego, CA')
-        self.assertEqual((response.status_code, response.json()['error']['code']), (422, 'no_fuel_in_range'))
-        self.assertIn('no station between', response.json()['error']['message'])
+        error = response.json()['error']
+        self.assertEqual((response.status_code, error['code']), (422, 'no_fuel_in_range'))
+        self.assertTrue(error['message'].startswith('No fuel station in the price list between'))
+        self.assertGreater(error['gap']['miles'], 500)
 
     @mock.patch('fuel.planner.get_route', side_effect=RoutingUnavailable('The routing service is unavailable.'))
     def test_routing_down_is_a_502(self, get_route):

@@ -20,8 +20,8 @@ ERRORS = {
 }
 
 
-def error(http_status, code, message):
-    return Response({'error': {'code': code, 'message': message}}, status=http_status)
+def error(http_status, code, message, **details):
+    return Response({'error': {'code': code, 'message': message, **details}}, status=http_status)
 
 
 @api_view(['GET'])
@@ -41,7 +41,8 @@ def route(request):
         plan = plan_trip(params['start'], params['finish'], params['mode'])
     except tuple(ERRORS) as problem:
         http_status, code = ERRORS[type(problem)]
-        return error(http_status, code, str(problem))
+        details = {'gap': problem.gap} if isinstance(problem, TripNotFeasible) else {}
+        return error(http_status, code, str(problem), **details)
     map_url = request.build_absolute_uri(f'{reverse("map")}?{urlencode(params)}')
     return Response({'map_url': map_url, **plan})
 

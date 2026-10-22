@@ -18,14 +18,15 @@ class ResolveTests(SimpleTestCase):
     def test_typos_are_corrected_and_reported(self):
         location = resolve('Chicgo, Ilinois')
         self.assertEqual(location.name, 'Chicago, IL')
-        self.assertEqual(location.corrected_from, 'Chicgo, Ilinois')
+        self.assertEqual(location.note, 'Read "Chicgo, Ilinois" as "Chicago, IL".')
 
     def test_exact_match_is_not_reported_as_a_correction(self):
-        self.assertIsNone(resolve('Denver, CO').corrected_from)
+        self.assertIsNone(resolve('Denver, CO').note)
 
     def test_rejects_what_it_cannot_resolve(self):
         cases = {
-            'Springfield': 'has no state',
+            'Xyzzy': 'has no state',
+            ', IL': 'has no city',
             'Toronto, ON': 'is not a US state',
             '51.5,-0.12': 'is not in the USA',
             '-87.63,41.88': 'Latitude comes first',
@@ -39,3 +40,18 @@ class ResolveTests(SimpleTestCase):
     def test_suggests_close_names_it_will_not_guess(self):
         with self.assertRaisesMessage(PlaceNotFound, 'Did you mean "Austin, TX"'):
             resolve('Austen, TX')
+
+
+class NoStateTests(SimpleTestCase):
+    def test_a_city_far_bigger_than_its_namesakes_is_accepted_with_a_note(self):
+        location = resolve('Chicago')
+        self.assertEqual(location.name, 'Chicago, IL')
+        self.assertEqual(location.note, 'No state given; read "Chicago" as "Chicago, IL".')
+
+    def test_an_ambiguous_name_lists_the_options_and_the_format(self):
+        with self.assertRaises(PlaceNotFound) as raised:
+            resolve('Portland')
+        message = str(raised.exception)
+        self.assertIn('several places called "Portland"', message)
+        self.assertIn('Portland, OR; Portland, ME', message)
+        self.assertIn('Use a city and state', message)

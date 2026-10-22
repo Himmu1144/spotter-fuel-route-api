@@ -18,6 +18,10 @@ from .routing import get_route
 class TripNotFeasible(Exception):
     """There is a stretch of the route longer than one tank with no station in it."""
 
+    def __init__(self, message, gap):
+        super().__init__(message)
+        self.gap = gap
+
 
 def plan_trip(start_text, finish_text, mode='balanced'):
     timings, clock = {}, time.perf_counter()
@@ -39,7 +43,7 @@ def plan_trip(start_text, finish_text, mode='balanced'):
                          route.distance_miles, range_miles=settings.VEHICLE_RANGE_MILES,
                          mpg=settings.VEHICLE_MPG, mode=mode)
     except RouteNotFeasible as gap:
-        raise TripNotFeasible(_describe_gap(gap, along, start, finish)) from gap
+        raise TripNotFeasible(*_describe_gap(gap, along, start, finish)) from gap
     lap('fuel_plan')
 
     stops = []
@@ -55,12 +59,17 @@ def plan_trip(start_text, finish_text, mode='balanced'):
             'mile': round(found.mile, 1),
             'off_route_miles': round(found.off_route_miles, 1),
             'price_per_gallon': round(float(station.price_per_gallon), 3),
+            'price_basis': _price_basis(station),
             'gallons': round(purchase.gallons, 2),
             'cost_usd': round(purchase.cost, 2),
             'latitude': station.latitude,
             'longitude': station.longitude,
         })
     line = simplify(route.points)
+    gallons_bought = sum(p.gallons for p in plan.purchases)
+    gallons_used = route.distance_miles / settings.VEHICLE_MPG
+    tank_price, tank_priced_at = _starting_tank_price(along)
+    starting_tank_cost = max(gallons_used - gallons_bought, 0) * tank_price
     lap('response')
 
     return {
@@ -71,11 +80,15 @@ def plan_trip(start_text, finish_text, mode='balanced'):
             'drive_hours': round(route.duration_hours, 1),
             'mode': mode,
             'stops': len(stops),
-            'fuel_cost_usd': round(plan.fuel_cost, 2),
-            'gallons_bought': round(sum(p.gallons for p in plan.purchases), 2),
-            'gallons_used': round(route.distance_miles / settings.VEHICLE_MPG, 2),
-            'assumptions': (f'Starts with a full tank ({settings.VEHICLE_RANGE_MILES:.0f}-mile range) '
-                            f'at {settings.VEHICLE_MPG:g} mpg; fuel_cost_usd is the fuel bought on the way.'),
+            'plan': _plan_explanation(mode, plan, len(stops)),
+            'fuel_bought_usd': round(plan.fuel_cost, 2),
+            'trip_fuel_cost_usd': round(plan.fuel_cost + starting_tank_cost, 2),
+            'gallons_bought': round(gallons_bought, 2),
+            'gallons_used': round(gallons_used, 2),
+            'assumptions': (
+                f'{settings.VEHICLE_MPG:g} mpg and a {settings.VEHICLE_RANGE_MILES:.0f}-mile range. The vehicle '
+                f'starts with a full tank: fuel_bought_usd is the fuel bought on the way; trip_fuel_cost_usd '
+                f'also counts the starting tank, priced at {tank_priced_at}.'),
         },
         'compared_to_cheapest': {
             'cheapest_cost_usd': round(plan.cheapest_cost, 2),
@@ -109,21 +122,52 @@ def plan_trip(start_text, finish_text, mode='balanced'):
 def _place(text, location):
     place = {'input': text, 'resolved': location.name,
              'latitude': location.latitude, 'longitude': location.longitude}
-    if location.corrected_from:
-        place['note'] = f'Read "{location.corrected_from}" as "{location.name}".'
+    if location.note:
+        place['note'] = location.note
     return place
 
 
+def _price_basis(station):
+    if station.listed_prices == 1:
+        return 'the one price listed for this station'
+    return (f'median of {station.listed_prices} prices listed for this station '
+            f'(${station.lowest_price:.3f} to ${station.highest_price:.3f})')
+
+
+def _starting_tank_price(along):
+    """What the fuel already in the tank is worth: the price at the first listed station on the route."""
+    if along:
+        first = along[0].station
+        return float(first.price_per_gallon), f'${first.price_per_gallon:.3f}, the first listed station on the route ({first.name}, {first.city}, {first.state})'
+    median = float(settings.FALLBACK_PRICE_PER_GALLON)
+    return median, f'${median:.3f}, the median price in the price list (no listed station on this route)'
+
+
+def _plan_explanation(mode, plan, stops):
+    if mode == 'cheapest':
+        return 'cheapest: the lowest fuel cost, however many stops it takes.'
+    if stops == plan.cheapest_stops:
+        return 'balanced: the fewest stops within 1% of the cheapest plan. Here that is also the cheapest plan.'
+    return (f'balanced: the fewest stops within 1% of the cheapest plan. The cheapest plan costs '
+            f'${plan.fuel_cost - plan.cheapest_cost:.2f} less but needs {plan.cheapest_stops} stops '
+            f'(add mode=cheapest to get it).')
+
+
 def _describe_gap(gap, along, start, finish):
+    """A one-line explanation of the stretch with no listed station, and the same as data."""
     def name_at(mile):
         if mile == 0:
-            return f'the start ({start.name})'
+            return start.name
         for found in along:
             if abs(found.mile - mile) < 1e-6:
                 s = found.station
                 return f'{s.name} in {s.city}, {s.state} (mile {found.mile:.0f})'
-        return f'the destination ({finish.name}, mile {mile:.0f})'
+        return f'{finish.name} (mile {mile:.0f})'
 
-    return (f'This trip needs a fuel stop the price list can\'t provide: there is no station between '
-            f'{name_at(gap.from_mile)} and {name_at(gap.to_mile)}, which is more than '
-            f'{settings.VEHICLE_RANGE_MILES:.0f} miles.')
+    miles = gap.to_mile - gap.from_mile
+    message = (f'No fuel station in the price list between {name_at(gap.from_mile)} and '
+               f'{name_at(gap.to_mile)}: {miles:.0f} miles, more than one '
+               f'{settings.VEHICLE_RANGE_MILES:.0f}-mile tank. This trip can\'t be planned from this price list.')
+    return message, {'from': name_at(gap.from_mile), 'to': name_at(gap.to_mile),
+                     'from_mile': round(gap.from_mile, 1), 'to_mile': round(gap.to_mile, 1),
+                     'miles': round(miles, 1)}

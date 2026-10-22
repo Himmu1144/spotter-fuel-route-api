@@ -34,7 +34,7 @@ US_STATES = set(
     'NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY'.split()
 )
 FIELDS = ['opis_id', 'name', 'address', 'city', 'state', 'rack_id', 'price_per_gallon',
-          'latitude', 'longitude', 'placement']
+          'listed_prices', 'lowest_price', 'highest_price', 'latitude', 'longitude', 'placement']
 
 
 def read_prices(path=PRICE_FILE, report=print):
@@ -65,6 +65,8 @@ def read_prices(path=PRICE_FILE, report=print):
             prices.setdefault(station['opis_id'], []).append(station['price_per_gallon'])
     for opis_id, station in stations.items():
         station['price_per_gallon'] = statistics.median(prices[opis_id])
+        station['listed_prices'] = len(prices[opis_id])
+        station['lowest_price'], station['highest_price'] = min(prices[opis_id]), max(prices[opis_id])
     report(f'{rows} rows read; {sum(foreign.values())} outside the US dropped ({", ".join(sorted(foreign))})')
     report(f'{len(stations)} US stations after keeping one row per ID')
     return stations

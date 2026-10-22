@@ -149,3 +149,5 @@ CORRIDOR_MILES = {'exit': 10, 'town': 10, 'manual': 10}
 # The vehicle in the brief.
 VEHICLE_RANGE_MILES = 500
 VEHICLE_MPG = 10.0
+# Used to price the starting tank only when no listed station is on the route: the file's median.
+FALLBACK_PRICE_PER_GALLON = '3.399'

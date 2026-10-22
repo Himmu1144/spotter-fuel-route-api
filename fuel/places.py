@@ -72,8 +72,9 @@ class Location:
     name: str
     latitude: float
     longitude: float
-    # Set when the input was misspelt and corrected, so the caller can see the guess.
-    corrected_from: str | None = None
+    # Set when the input was read with a guess (a typo fixed, a missing state filled
+    # in), so the caller can always see how it was read.
+    note: str | None = None
 
 
 @cache
@@ -83,6 +84,14 @@ def _places():
         return {(row['key'], row['state']): (row['name'], float(row['latitude']),
                                              float(row['longitude']), int(row['population']))
                 for row in csv.DictReader(f)}
+
+
+@cache
+def _states_by_name():
+    states = defaultdict(list)
+    for key, state in _places():
+        states[key].append(state)
+    return states
 
 
 @cache
@@ -121,8 +130,10 @@ def resolve(text):
         return Location(f'{latitude:.5f},{longitude:.5f}', latitude, longitude)
 
     city, comma, state = text.rpartition(',')
-    if not comma or not city.strip():
-        raise PlaceNotFound(f'"{text}" has no state. {FORMAT_HELP}')
+    if not comma:
+        return _resolve_without_state(text)
+    if not city.strip():
+        raise PlaceNotFound(f'"{text}" has no city. {FORMAT_HELP}')
     state_text = ' '.join(state.split()).lower()
     code = _STATE_CODES.get(state_text)
     corrected = False
@@ -134,14 +145,37 @@ def resolve(text):
     key = normalize(city)
     place = _places().get((key, code))
     if place:
-        return Location(f'{place[0]}, {code}', place[1], place[2],
-                        corrected_from=text if corrected else None)
+        name = f'{place[0]}, {code}'
+        return Location(name, place[1], place[2], note=f'Read "{text}" as "{name}".' if corrected else None)
 
     candidates = _closest(key, code)
     if candidates and difflib.SequenceMatcher(None, key, candidates[0]).ratio() >= TYPO_CUTOFF:
         name, latitude, longitude, _ = _places()[(candidates[0], code)]
-        return Location(f'{name}, {code}', latitude, longitude, corrected_from=text)
+        return Location(f'{name}, {code}', latitude, longitude, note=f'Read "{text}" as "{name}, {code}".')
     names = dict.fromkeys(f'"{_places()[(c, code)][0]}, {code}"' for c in candidates)
     suggestions = ', '.join(list(names)[:3])
     hint = f' Did you mean {suggestions}?' if suggestions else ''
     raise PlaceNotFound(f'Could not find "{city.strip()}" in {STATES[code]}.{hint} {FORMAT_HELP}')
+
+
+# A city named without its state is accepted only if it is far bigger than every other
+# US place with that name: "Chicago" is Chicago, IL, but "Portland" could be OR or ME.
+DOMINANT_RATIO = 20
+
+
+def _resolve_without_state(text):
+    """The format asks for a state; this is a convenience on top of it, never a guess."""
+    key = normalize(text)
+    states = _states_by_name().get(key, [])
+    if not states:
+        raise PlaceNotFound(f'"{text}" has no state. {FORMAT_HELP}')
+    places = sorted(((_places()[(key, state)], state) for state in states), key=lambda p: -p[0][3])
+    (name, latitude, longitude, population), code = places[0]
+    runner_up = places[1][0][3] if len(places) > 1 else 0
+    if population > 0 and population >= DOMINANT_RATIO * runner_up:
+        return Location(f'{name}, {code}', latitude, longitude,
+                        note=f'No state given; read "{text}" as "{name}, {code}".')
+    options = '; '.join(f'{p[0]}, {state}' for p, state in places[:4])
+    more = f' and {len(places) - 4} more' if len(places) > 4 else ''
+    raise PlaceNotFound(f'There are several places called "{text}": {options}{more}. '
+                        f'Add the state, e.g. "{places[0][0][0]}, {places[0][1]}". {FORMAT_HELP}')

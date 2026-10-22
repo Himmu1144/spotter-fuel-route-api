@@ -15,11 +15,16 @@ def north_of_route(miles):
 def add_station(opis_id, latitude, longitude, placement='town'):
     return FuelStation.objects.create(
         opis_id=opis_id, name=f'Station {opis_id}', address='', city='', state='KS', rack_id=1,
-        price_per_gallon='3.5', latitude=latitude, longitude=longitude, placement=placement)
+        price_per_gallon='3.5', lowest_price='3.5', highest_price='3.5',
+        latitude=latitude, longitude=longitude, placement=placement)
 
 
 @override_settings(CORRIDOR_MILES={'exit': 3, 'town': 10, 'manual': 10})
 class StationsAlongTests(TestCase):
+    def setUp(self):
+        # `migrate` loads the real stations; these tests use only their own.
+        FuelStation.objects.all().delete()
+
     def test_keeps_stations_within_the_corridor_in_route_order(self):
         add_station(1, 40.0, -99.5)                    # on the road, about mile 26.5
         add_station(2, north_of_route(5), -99.8)       # 5 miles off, about mile 10.6
