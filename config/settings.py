@@ -134,3 +134,10 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+
+# Routing: OSRM servers tried in order. Both are free and need no key.
+OSRM_SERVERS = os.environ.get(
+    'OSRM_SERVERS',
+    'https://router.project-osrm.org,https://routing.openstreetmap.de/routed-car',
+).split(',')
