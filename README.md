@@ -13,7 +13,21 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 python manage.py migrate
+python manage.py load_stations
 python manage.py runserver
 ```
 
-Check it's up: <http://127.0.0.1:8000/api/health/>
+Check it's up: <http://127.0.0.1:8000/api/health/> (shows how many stations are loaded)
+
+Runs on SQLite with no setup. To use Postgres instead, start one with `docker compose up -d` and set `DATABASE_URL` as shown in `.env.example`.
+
+## The station data
+
+The price file has no coordinates, so stations are placed on the map once, offline, and the result (`data/stations.csv`) is committed. To rebuild it:
+
+```bash
+python scripts/build_places.py     # US place list from GeoNames -> data/us_places.csv.gz
+python scripts/build_stations.py   # clean the price file and place each station -> data/stations.csv
+```
+
+Cleaning: 620 Canadian rows dropped; 905 duplicate rows merged (one row per station ID, at its lowest listed price); stray spaces trimmed. 6,626 US stations, all placed: 6,604 at their town's centre, 22 from hand-checked lookups in `data/place_fixes.csv`.
