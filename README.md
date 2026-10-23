@@ -69,6 +69,8 @@ Errors share one shape, `{"error": {"code": ..., "message": ...}}`: **400** for 
 
 ## How it works
 
+![One request, left to right: places, route, stations along the route, fuel plan, response; the stations are placed once beforehand](docs/request-journey.png)
+
 1. **Places:** `start` and `finish` are looked up in a local list of 188,000 US places (from GeoNames), so no geocoding call; coordinates are checked against the US border (US Census Bureau).
 2. **Route:** one call to OSRM's public server, with a second public OSRM server tried only if the first fails. Cached for a day by the resolved coordinates.
 3. **Stations along the route:** the route is cut into ~50-mile stretches; one indexed database query returns the stations inside a box around any stretch, then each candidate gets its exact distance to the road and its mile along it.
