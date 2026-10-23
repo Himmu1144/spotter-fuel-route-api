@@ -99,7 +99,7 @@ def plan_trip(start_text, finish_text, mode='balanced'):
                 f'{settings.VEHICLE_MPG:g} mpg and a {settings.VEHICLE_RANGE_MILES:.0f}-mile range. The vehicle '
                 f'starts with a full tank: fuel_bought_usd is the fuel bought on the way; trip_fuel_cost_usd '
                 f'also counts the starting tank, priced at {tank_priced_at}. Mileage is along the route; '
-                f'the short detour to each station (off_route_miles) is not added.'),
+                f'off_route_miles is the straight-line distance from a station to the route; the road detour is not added.'),
             **summary_warning,
         },
         'compared_to_cheapest': {

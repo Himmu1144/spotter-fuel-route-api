@@ -81,7 +81,7 @@ Errors share one shape, `{"error": {"code": ..., "message": ...}}`: **400** for 
 - **Balanced by default.** The cheapest plan for Seattle to Miami makes 22 stops; every stop costs a driver time, so the default trades up to 1% more fuel cost for far fewer stops. `mode=cheapest` is one parameter away.
 - **At most 30 stops.** "Cheapest" means the cheapest plan a driver would follow: up to 30 stops, where real routes need about 20. If the cheapest plan ever uses all 30, the response says so.
 - **A one-mile reserve.** Station positions are rounded to the mile, so plans keep a mile in the tank; rounding can never stretch a leg past the 500-mile range.
-- **Detours aren't counted.** Mileage is measured along the route; the short detour to each station (shown as `off_route_miles`, usually under a mile for stations at an exit) isn't added to fuel use.
+- **Detours aren't counted.** Mileage is measured along the route. `off_route_miles` is the straight-line distance from a station to the route (usually under a mile for stations at an exit); the actual road detour isn't known and isn't added to fuel use.
 - **Duplicate prices:** some stations are listed up to six times with different prices and no dates. Each is priced at the median of its listed prices; the lowest would favour stations listed more often, since each extra row is another chance to look cheap.
 - **Station positions:** where the address names a highway exit, the station sits at that exit (OpenStreetMap data, same state, same exit number, nearest the town); it counts as on the route within 3 miles. Otherwise it sits at its town's centre and counts within 10 miles, since that position is approximate.
 - **Only US stations:** trips start and finish in the USA, and the file doesn't say what currency its Canadian prices are in.
@@ -97,7 +97,7 @@ The price list has no stations on I-5 between Halsey, Oregon and southern Califo
 - **Station search:** PostGIS, with a spatial index and one query for "stations within X miles of this route line". A latitude/longitude index with boxes is fine for 6,600 stations, not for millions.
 - **Prices:** ingest the price feed on a schedule, with timestamps, and use each station's latest price instead of the median. Only routes are cached, so new prices take effect immediately.
 - **Cache under load:** a lock per trip, so identical requests arriving together make one routing call instead of several.
-- **Detours:** add each station's detour, there and back, to fuel use and range, or route through the chosen stops.
+- **Detours:** route through the chosen stops, so the real road detour to each station is counted in fuel use and range.
 - **Vehicle inputs:** current fuel level, tank size and mpg per truck as inputs, instead of the fixed full tank, 500-mile range and 10 mpg from the brief.
 - **Gaps in the price list:** let a dispatcher opt in to off-network fill-ups priced at retail where the network has no station, as on I-5 in California.
 
