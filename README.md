@@ -88,6 +88,17 @@ Errors share one shape, `{"error": {"code": ..., "message": ...}}`: **400** for 
 
 The price list has no stations on I-5 between Halsey, Oregon and southern California, and none in central or northern California (its 16 California stations are all in the far south-east). Trips that must refuel there, like San Francisco to Seattle, return a 422 naming the gap rather than inventing a stop.
 
+## In production, I'd change
+
+- **Routing:** a routing engine with a truck profile, such as self-hosted Valhalla or GraphHopper, or a paid service. The public OSRM servers have no uptime promise and route cars, which is why there's a fallback server here.
+- **Station search:** PostGIS, with a spatial index and one query for "stations within X miles of this route line". A latitude/longitude index with boxes is fine for 6,600 stations, not for millions.
+- **Prices:** ingest the price feed on a schedule, with timestamps, and use each station's latest price instead of the median. Only routes are cached, so new prices take effect immediately.
+- **Cache under load:** a lock per trip, so identical requests arriving together make one routing call instead of several.
+- **Vehicle inputs:** current fuel level, tank size and mpg per truck as inputs, instead of the fixed full tank, 500-mile range and 10 mpg from the brief.
+- **Gaps in the price list:** let a dispatcher opt in to off-network fill-ups priced at retail where the network has no station, as on I-5 in California.
+
+Deployment itself would be the usual Django setup: `DEBUG` off with a real secret key, gunicorn behind a proxy, rate limiting, and monitoring of routing failures.
+
 ## Tests
 
 ```bash
