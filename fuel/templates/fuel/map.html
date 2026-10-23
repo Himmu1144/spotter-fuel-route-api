@@ -7,26 +7,40 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    html, body { height: 100%; margin: 0; font: 14px/1.4 system-ui, sans-serif; }
+    html, body { height: 100%; margin: 0; font: 14px/1.4 system-ui, sans-serif; color: #1f2933; }
     body { display: flex; }
-    #panel { width: 300px; flex: none; padding: 16px; box-sizing: border-box; overflow-y: auto;
+    #panel { width: 310px; flex: none; box-sizing: border-box; overflow-y: auto;
              border-right: 1px solid #ddd; background: #fff; }
     #map { flex: 1; }
     @media (max-width: 700px) { body { flex-direction: column; } #panel { width: auto; border: 0; } }
-    #panel h1 { font-size: 15px; margin: 0 0 6px; }
-    #panel p { margin: 2px 0; color: #333; }
-    #panel .error { color: #b00020; }
-    #panel ol { padding-left: 20px; margin: 12px 0 0; }
-    #panel li { margin-bottom: 10px; }
-    #panel .muted { color: #666; font-size: 13px; }
+    #panel .error { color: #b00020; padding: 16px; }
+    .head { padding: 16px; border-bottom: 1px solid #e5e7eb; }
+    .head h1 { font-size: 16px; margin: 0 0 12px; }
+    .figures { display: flex; justify-content: space-between; gap: 8px; }
+    .figures b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+    .figures span { color: #6b7280; font-size: 12px; }
+    .aside { color: #6b7280; font-size: 12px; margin: 10px 0 0; }
+    .stops { list-style: none; margin: 0; padding: 0; }
+    .stops li { display: flex; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #f0f1f3; cursor: pointer; }
+    .stops li:hover { background: #f5f8fc; }
+    .stops .body { flex: 1; min-width: 0; }
+    .stops .top { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
+    .stops .top span:last-child { font-variant-numeric: tabular-nums; }
+    .stops .detail { color: #6b7280; font-size: 12px; margin: 2px 0 5px; font-variant-numeric: tabular-nums; }
+    .tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 10px; }
+    .tag.fill { background: #e3f4e8; color: #1e6b35; }
+    .tag.top-up { background: #fdf0d9; color: #8a5300; }
+    .tag.other { background: #eef0f3; color: #4b5563; }
+    .popup p { margin: 3px 0; }
+    .popup .muted { color: #6b7280; font-size: 12px; }
     .end { width: 14px; height: 14px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
-    .stop { background: #1565c0; color: #fff; border-radius: 50%; width: 24px; height: 24px;
+    .stop { flex: none; background: #1565c0; color: #fff; border-radius: 50%; width: 24px; height: 24px;
             line-height: 24px; text-align: center; font-weight: 600; border: 2px solid #fff;
             box-shadow: 0 1px 4px rgba(0,0,0,.4); }
   </style>
 </head>
 <body>
-  <div id="panel"><p>Planning the route...</p></div>
+  <div id="panel"><p class="head">Planning the route...</p></div>
   <div id="map"></div>
   <script>
     const map = L.map('map').setView([39.5, -98.35], 4);
@@ -36,11 +50,27 @@
     }).addTo(map);
     const panel = document.getElementById('panel');
 
-    function line(text, className) {
-      const p = document.createElement('p');
-      p.textContent = text;
-      if (className) p.className = className;
-      return p;
+    // Builds an element with text only, so nothing from the response is ever read as HTML.
+    function el(tag, text, className) {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    }
+    const money = value => '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    // A short label for each stop's reason; the full sentence is in its popup.
+    function tag(why) {
+      if (why.startsWith('Filled')) return el('span', 'Fill up', 'tag fill');
+      if (why.startsWith('Just enough')) return el('span', 'Top up · cheaper ahead', 'tag top-up');
+      if (why.includes('destination')) return el('span', 'Enough to finish', 'tag other');
+      return el('span', 'Enough for the next stop', 'tag other');
+    }
+
+    function figure(value, label) {
+      const box = el('div');
+      box.append(el('b', value), el('span', label));
+      return box;
     }
 
     fetch('/api/route/' + window.location.search, { headers: { Accept: 'application/json' } })
@@ -48,31 +78,26 @@
       .then(plan => {
         panel.replaceChildren();
         if (plan.error) {
-          panel.append(line(plan.error.message, 'error'));
+          panel.append(el('p', plan.error.message, 'error'));
           return;
         }
         const s = plan.summary;
-        const title = document.createElement('h1');
-        title.textContent = `${plan.start.resolved} to ${plan.finish.resolved}`;
-        panel.append(
-          title,
-          line(`${s.distance_miles} miles, about ${s.drive_hours} hours of driving`),
-          line(`${s.stops} fuel stops, $${s.fuel_bought_usd.toFixed(2)} of fuel bought on the way (${s.mode})`),
-          line(`Fuel for the whole trip: $${s.trip_fuel_cost_usd.toFixed(2)}`),
-          line(`Cheapest possible: $${plan.compared_to_cheapest.cheapest_cost_usd.toFixed(2)} with ` +
-               `${plan.compared_to_cheapest.cheapest_stops} stops`),
+        const cheapest = plan.compared_to_cheapest;
+        const head = el('div', undefined, 'head');
+        const figures = el('div', undefined, 'figures');
+        figures.append(
+          figure(Math.round(s.distance_miles).toLocaleString('en-US') + ' mi', 'distance'),
+          figure(String(s.stops), s.stops === 1 ? 'fuel stop' : 'fuel stops'),
+          figure(money(s.fuel_bought_usd), 'fuel bought'),
         );
-        const list = document.createElement('ol');
-        plan.stops.forEach(stop => {
-          const item = document.createElement('li');
-          item.append(
-            line(`${stop.name}, ${stop.city}, ${stop.state}`),
-            line(`Mile ${Math.round(stop.mile)}: ${stop.gallons} gal at $${stop.price_per_gallon.toFixed(3)} = $${stop.cost_usd.toFixed(2)}`, 'muted'),
-            line(stop.why, 'muted'),
-          );
-          list.append(item);
-        });
-        panel.append(list);
+        head.append(
+          el('h1', `${plan.start.resolved} → ${plan.finish.resolved}`),
+          figures,
+          el('p', `Whole trip ${money(s.trip_fuel_cost_usd)} · cheapest possible ${money(cheapest.cheapest_cost_usd)} ` +
+                  `with ${cheapest.cheapest_stops} stops · about ${Math.round(s.drive_hours)} h driving`, 'aside'),
+        );
+        panel.append(head);
+
         const route = L.geoJSON(plan.map.features.filter(f => f.properties.kind === 'route'),
                                 { style: { color: '#1565c0', weight: 4 } }).addTo(map);
         [[plan.start, '#2e7d32'], [plan.finish, '#c62828']].forEach(([place, colour]) => {
@@ -80,21 +105,40 @@
             icon: L.divIcon({ className: '', html: `<div class="end" style="background:${colour}"></div>`, iconSize: [20, 20] }),
           }).addTo(map).bindTooltip(place.resolved);
         });
+
+        const list = el('ol', undefined, 'stops');
         plan.stops.forEach(stop => {
           const marker = L.marker([stop.latitude, stop.longitude], {
             icon: L.divIcon({ className: '', html: `<div class="stop">${stop.order}</div>`, iconSize: [24, 24] }),
           }).addTo(map);
-          const popup = document.createElement('div');
+          const popup = el('div', undefined, 'popup');
           popup.append(
-            line(`${stop.order}. ${stop.name}`),
-            line(`${stop.city}, ${stop.state} · mile ${stop.mile}`),
-            line(`${stop.gallons} gal at $${stop.price_per_gallon.toFixed(3)} = $${stop.cost_usd.toFixed(2)}`),
+            el('p', `${stop.order}. ${stop.name}`),
+            el('p', `${stop.address}, ${stop.city}, ${stop.state}`, 'muted'),
+            el('p', `Mile ${Math.round(stop.mile)} · ${stop.gallons} gal at $${stop.price_per_gallon.toFixed(3)} = ${money(stop.cost_usd)}`),
+            el('p', stop.why),
+            el('p', 'Price: ' + stop.price_basis, 'muted'),
+            el('p', 'Location: ' + stop.location_basis, 'muted'),
           );
-          marker.bindPopup(popup);
+          marker.bindPopup(popup, { maxWidth: 300 });
+
+          const item = el('li');
+          const body = el('div', undefined, 'body');
+          const top = el('div', undefined, 'top');
+          top.append(el('span', `${stop.city}, ${stop.state}`), el('span', money(stop.cost_usd)));
+          body.append(
+            top,
+            el('div', `mile ${Math.round(stop.mile).toLocaleString('en-US')} · ${stop.gallons} gal · $${stop.price_per_gallon.toFixed(3)}/gal`, 'detail'),
+            tag(stop.why),
+          );
+          item.append(el('div', String(stop.order), 'stop'), body);
+          item.addEventListener('click', () => { map.panTo(marker.getLatLng()); marker.openPopup(); });
+          list.append(item);
         });
+        panel.append(list);
         map.fitBounds(route.getBounds(), { padding: [30, 30] });
       })
-      .catch(() => panel.replaceChildren(line('Could not load the plan.', 'error')));
+      .catch(() => panel.replaceChildren(el('p', 'Could not load the plan.', 'error')));
   </script>
 </body>
 </html>
