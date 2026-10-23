@@ -69,23 +69,6 @@ Errors share one shape, `{"error": {"code": ..., "message": ...}}`: **400** for 
 
 ## How it works
 
-```mermaid
-flowchart TD
-  subgraph once["Done once, before any request"]
-    P["Price file: about 8,000 rows, no coordinates"] --> S["Place each station at the highway exit its address names, else its town<br/>median of duplicate prices, Canadian rows dropped"]
-    S --> DB[("Database: 6,626 stations")]
-  end
-
-  R["GET /api/route/?start=Seattle, WA&finish=Miami, FL"] --> A["1 · Places<br/>local list of 188,000 US places, typos fixed<br/>no external call"]
-  A --> C{"Route seen in the last day?"}
-  C -- no --> B["2 · Route<br/>one call to OSRM, backup server only on failure"]
-  C -- yes, 0 calls --> D
-  B --> D["3 · Stations near the route<br/>50-mile boxes, one indexed query,<br/>then exact distance and mile"]
-  DB -.-> D
-  D --> E["4 · Fuel plan<br/>cheapest cost for every number of stops,<br/>balanced: fewest stops within 1%"]
-  E --> F["5 · Response<br/>stops with reasons, two totals, map line, call count and timings"]
-```
-
 1. **Places:** `start` and `finish` are looked up in a local list of 188,000 US places (from GeoNames), so no geocoding call; coordinates are checked against the US border (US Census Bureau).
 2. **Route:** one call to OSRM's public server, with a second public OSRM server tried only if the first fails. Cached for a day by the resolved coordinates.
 3. **Stations along the route:** the route is cut into ~50-mile stretches; one indexed database query returns the stations inside a box around any stretch, then each candidate gets its exact distance to the road and its mile along it.
