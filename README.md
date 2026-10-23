@@ -35,7 +35,7 @@ Returns, summary first:
 - `map`: the route and stops as GeoJSON (paste into geojson.io to view)
 - `meta`: which routing server answered, how many external calls were made, and where the time went
 
-Add `&mode=cheapest` for the absolute cheapest plan. The default, `balanced`, takes the fewest stops that cost no more than 1% above the cheapest: Seattle to Miami is 8 stops for $851.57, against 18 stops for $848.09.
+Add `&mode=cheapest` for the absolute cheapest plan. The default, `balanced`, takes the fewest stops that cost no more than 1% above the cheapest: Seattle to Miami is 8 stops for $852.39, against 20 stops for $848.75. Each stop also says why it buys the amount it does, and how its price and location were worked out.
 
 Errors come back as `{"error": {"code", "message"}}`: 400 for input it can't read, 422 when there's no road route or a stretch longer than one tank has no station (with a `gap` saying where), 502 when the routing service is down.
 
@@ -58,7 +58,8 @@ The price file has no coordinates, so stations are placed on the map once, offli
 
 ```bash
 python scripts/build_places.py     # US place list from GeoNames -> data/us_places.csv.gz
+python scripts/fetch_exits.py      # numbered motorway exits from OpenStreetMap -> data/osm_exits.csv (slow: public servers)
 python scripts/build_stations.py   # clean the price file and place each station -> data/stations.csv
 ```
 
-Cleaning: 620 Canadian rows dropped (trips start and finish in the USA, and the file doesn't say what currency those prices are in); 905 duplicate rows merged into one row per station ID, priced at the median of its listed prices (there are no dates to pick the latest, and the lowest would favour stations that are listed more often); stray spaces trimmed. 6,626 US stations, all placed: 6,605 at their town's centre, 21 from hand-checked lookups in `data/place_fixes.csv`.
+Cleaning: 620 Canadian rows dropped (trips start and finish in the USA, and the file doesn't say what currency those prices are in); 905 duplicate rows merged into one row per station ID, priced at the median of its listed prices (there are no dates to pick the latest, and the lowest would favour stations that are listed more often); stray spaces trimmed. 6,626 US stations, all placed: 3,389 at the highway exit their address names ("I-80, EXIT 439"), matched against OpenStreetMap's exits (`scripts/fetch_exits.py`, `data/osm_exits.csv`); the rest at their town's centre, 8 of those from hand-checked lookups in `data/place_fixes.csv`. A station counts as on the route within 3 miles if it's at a known exit, or 10 miles if it's placed at its town's centre, since that position is approximate.

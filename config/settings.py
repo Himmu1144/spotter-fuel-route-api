@@ -143,8 +143,9 @@ OSRM_SERVERS = os.environ.get(
 ).split(',')
 
 # How far from the route a station may be to count, in miles, by how it was placed.
-# Town-centre placements can be several miles off the highway, so they get more room.
-CORRIDOR_MILES = {'exit': 10, 'town': 10, 'manual': 10}
+# A station placed at its exact highway exit and still miles away is on another road;
+# town-centre placements can be several miles off the highway, so they get more room.
+CORRIDOR_MILES = {'exit': 3, 'town': 10, 'manual': 10}
 
 # The vehicle in the brief.
 VEHICLE_RANGE_MILES = 500

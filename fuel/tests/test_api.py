@@ -32,7 +32,10 @@ class RouteApiTests(TestCase):
         self.assertAlmostEqual(sum(s['cost_usd'] for s in body['stops']), summary['fuel_bought_usd'], delta=0.05)
         self.assertGreater(summary['trip_fuel_cost_usd'], summary['fuel_bought_usd'])
         self.assertTrue(summary['plan'].startswith('balanced: the fewest stops within 1%'))
-        self.assertTrue(body['stops'][0]['price_basis'].startswith(('the one price', 'median of')))
+        first, last = body['stops'][0], body['stops'][-1]
+        self.assertTrue(first['price_basis'].startswith(('the one price', 'median of')))
+        self.assertTrue(first['location_basis'])
+        self.assertEqual(last['why'], 'Enough to reach the destination.')
         self.assertEqual(body['meta']['external_calls'], 1)
         self.assertEqual([f['geometry']['type'] for f in body['map']['features']][0], 'LineString')
         get_route.assert_called_once()

@@ -49,3 +49,19 @@ class LoadStationsTests(TestCase):
         call_command('load_stations', stdout=StringIO())
         self.assertEqual(FuelStation.objects.count(), 6626)
         self.assertEqual(FuelStation.objects.get(opis_id=105).price_per_gallon, Decimal('3.319'))
+
+
+class ExitInAddressTests(SimpleTestCase):
+    def test_reads_the_exit_number_however_the_address_writes_it(self):
+        from scripts.build_stations import EXIT_IN_ADDRESS, exit_key
+        cases = {
+            'I-44, EXIT 283 & US-69': '283',
+            'I-75, EXIT 144-B': '144B',
+            'I-80 EX 360': '360',
+            'I-35, EXIT, 61 & US-69': '61',
+            'US-385 & SR-2': None,
+        }
+        for address, expected in cases.items():
+            with self.subTest(address=address):
+                match = EXIT_IN_ADDRESS.search(address)
+                self.assertEqual(exit_key(match.group(1)) if match else None, expected)

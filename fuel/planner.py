@@ -47,9 +47,13 @@ def plan_trip(start_text, finish_text, mode='balanced'):
     lap('fuel_plan')
 
     stops = []
+    fuel_miles, here = float(settings.VEHICLE_RANGE_MILES), 0.0
     for order, purchase in enumerate(plan.purchases, start=1):
         found = along[purchase.index]
         station = found.station
+        fuel_miles -= found.mile - here
+        here = found.mile
+        fuel_miles += purchase.gallons * settings.VEHICLE_MPG
         stops.append({
             'order': order,
             'name': station.name,
@@ -62,6 +66,8 @@ def plan_trip(start_text, finish_text, mode='balanced'):
             'price_basis': _price_basis(station),
             'gallons': round(purchase.gallons, 2),
             'cost_usd': round(purchase.cost, 2),
+            'why': _why(order, plan.purchases, along, fuel_miles),
+            'location_basis': _location_basis(station),
             'latitude': station.latitude,
             'longitude': station.longitude,
         })
@@ -132,6 +138,28 @@ def _price_basis(station):
         return 'the one price listed for this station'
     return (f'median of {station.listed_prices} prices listed for this station '
             f'(${station.lowest_price:.3f} to ${station.highest_price:.3f})')
+
+
+def _why(order, purchases, along, fuel_after_miles):
+    """One line on why this stop buys the amount it does."""
+    if order == len(purchases):
+        return 'Enough to reach the destination.'
+    if fuel_after_miles >= settings.VEHICLE_RANGE_MILES - 1:
+        return 'Filled the tank.'
+    this = along[purchases[order - 1].index].station
+    following = along[purchases[order].index]
+    if following.station.price_per_gallon < this.price_per_gallon:
+        return (f'Just enough to reach stop {order + 1}, {following.mile - along[purchases[order - 1].index].mile:.0f} '
+                f'miles on, where fuel is cheaper (${following.station.price_per_gallon:.3f}).')
+    return f'Enough to reach stop {order + 1}.'
+
+
+def _location_basis(station):
+    if station.placement == 'exit':
+        return f'the highway exit named in its address ({station.address})'
+    if station.placement == 'manual':
+        return f'approximate: {station.city}, {station.state}, looked up by hand (the price list gives no exact location)'
+    return f'approximate: the centre of {station.city}, {station.state} (the price list gives no exact location)'
 
 
 def _starting_tank_price(along):
