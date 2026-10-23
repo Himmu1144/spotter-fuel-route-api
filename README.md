@@ -1,69 +1,125 @@
 # Fuel Route API
 
-A Django API that takes a start and finish in the USA, returns the driving route on a map, picks cost-effective fuel stops for a vehicle with a 500-mile range, and totals the fuel cost at 10 miles per gallon.
+[![tests](https://github.com/Himmu1144/spotter-fuel-route-api/actions/workflows/tests.yml/badge.svg)](https://github.com/Himmu1144/spotter-fuel-route-api/actions/workflows/tests.yml)
 
-Work in progress.
+A Django API that takes a start and finish in the USA and returns the driving route on a map, cost-effective fuel stops for a vehicle with a 500-mile range, and the total fuel cost at 10 miles per gallon, using the provided fuel price list.
 
-## Run locally
+![Seattle to Miami: the route, eight numbered fuel stops, and why each one buys what it does](docs/map-seattle-miami.jpg)
+
+## Highlights
+
+- **One external call per trip, none on a repeat.** Places are resolved locally; only the route comes from OSRM (free, no key), and it's cached. Every response reports its call count.
+- **Fast:** about 1.5 s for a new coast-to-coast trip, nearly all of it the routing call; about 120 ms when the route is cached.
+- **Practical, not just cheapest.** By default it picks the fewest stops within 1% of the cheapest plan: Seattle to Miami is 8 stops for $852.39, against 20 stops for $848.75. `mode=cheapest` gives the pure cheapest.
+- **Optimal, and checked.** The optimiser finds the cheapest plan for every number of stops; a test compares it with brute force on 300 random trips.
+- **The messy price file, handled.** It has no coordinates, so stations are placed once, offline: 3,389 at the actual highway exit their address names ("I-80, EXIT 439"), the rest at their town. 905 duplicate rows are priced at their median, and Canadian rows are dropped.
+- **Forgiving input, strict contract.** `City, ST`, `City, State` or `lat,lon`. Typos are corrected and reported ("Chicgo" is read as Chicago), "Chicago" alone works, and "Portland" gets a list of the options instead of a guess.
+- **Every number explains itself.** Each stop says why it buys that amount and how its price and location were worked out; errors say exactly what went wrong, including where the price list has no stations.
+- **Real Django underneath:** models, an indexed station query, migrations that load the data, 35 tests run in CI on SQLite and Postgres, and Redis caching when configured.
+
+## Quick start
 
 Requires Python 3.12 or newer.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+git clone https://github.com/Himmu1144/spotter-fuel-route-api.git && cd spotter-fuel-route-api
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python manage.py migrate      # creates the tables and loads the 6,626 fuel stations (once)
+python manage.py migrate      # creates the tables and loads the 6,626 fuel stations, once
 python manage.py runserver
 ```
 
-Check it's up: <http://127.0.0.1:8000/api/health/> (shows how many stations are loaded)
+Then try <http://127.0.0.1:8000/api/route/?start=Seattle,%20WA&finish=Miami,%20FL>, open the `map_url` it returns, or import `postman/fuel-route-api.postman_collection.json` into Postman: eight requests that walk through everything below, each with checks.
 
-Runs on SQLite with an in-memory cache and no setup. To run on Postgres and Redis instead, start them with `docker compose up -d` and set `DATABASE_URL` and `REDIS_URL` as shown in `.env.example`.
+No setup beyond that: SQLite and an in-memory cache by default. `docker compose up -d` starts Postgres and Redis; set `DATABASE_URL` and `REDIS_URL` as in `.env.example` to use them.
 
-## Use it
+## The API
 
 ```
-GET /api/route/?start=Seattle, WA&finish=Miami, FL
+GET /api/route/?start=Chicago, IL&finish=Denver, CO[&mode=cheapest]
 ```
 
-Returns, summary first:
+```jsonc
+{
+  "map_url": "http://127.0.0.1:8000/map/?start=Chicago%2C+IL&finish=Denver%2C+CO&mode=balanced",
+  "summary": {
+    "distance_miles": 1004.8, "drive_hours": 17.9, "stops": 2,
+    "plan": "balanced: the fewest stops within 1% of the cheapest plan. Here that is also the cheapest plan.",
+    "fuel_bought_usd": 142.07,      // bought on the way
+    "trip_fuel_cost_usd": 321.19,   // all fuel burned, counting the full tank it starts with
+    "gallons_bought": 50.5, "gallons_used": 100.48
+  },
+  "compared_to_cheapest": { "cheapest_cost_usd": 142.07, "cheapest_stops": 2, "extra_cost_usd": 0.0 },
+  "stops": [
+    {
+      "order": 1, "name": "KUM & GO #0370", "city": "Gretna", "state": "NE",
+      "mile": 480.6, "off_route_miles": 0.0, "price_per_gallon": 2.921, "gallons": 5.9, "cost_usd": 17.23,
+      "why": "Just enough to reach stop 2, 78 miles on, where fuel is cheaper ($2.799).",
+      "price_basis": "the one price listed for this station",
+      "location_basis": "the highway exit named in its address (I-80, EXIT 439 & SR-370)"
+    }
+    // ...
+  ],
+  "map": { "type": "FeatureCollection", "features": [ /* route line and stops, GeoJSON */ ] },
+  "meta": { "external_calls": 1, "route_cached": false, "timing_ms": { "routing": 798.0, "stations": 39.3, "fuel_plan": 28.2 } }
+}
+```
 
-- `map_url`: open it in a browser to see the route and numbered fuel stops on a map
-- `summary`: distance, driving time, number of stops, a one-line description of the plan, and two totals: `fuel_bought_usd` (fuel bought on the way) and `trip_fuel_cost_usd` (all the fuel the trip burns, counting the full tank it starts with)
-- `compared_to_cheapest`: what the absolute cheapest plan would cost, and how many stops it needs
-- `stops`: each stop in order, with its mile along the route, price (and how that price was worked out), gallons and cost
-- `map`: the route and stops as GeoJSON (paste into geojson.io to view)
-- `meta`: which routing server answered, how many external calls were made, whether the route came from the cache, and where the time went
+Errors share one shape, `{"error": {"code": ..., "message": ...}}`: **400** for input it can't read (with what to send instead), **422** when there's no road route or a stretch longer than one tank has no station (with a `gap` saying where), **502** when routing is down.
 
-Add `&mode=cheapest` for the absolute cheapest plan. The default, `balanced`, takes the fewest stops that cost no more than 1% above the cheapest: Seattle to Miami is 8 stops for $852.39, against 20 stops for $848.75. Each stop also says why it buys the amount it does, and how its price and location were worked out.
+## How it works
 
-Errors come back as `{"error": {"code", "message"}}`: 400 for input it can't read, 422 when there's no road route or a stretch longer than one tank has no station (with a `gap` saying where), 502 when the routing service is down.
+1. **Places:** `start` and `finish` are looked up in a local list of 188,000 US places (from GeoNames), so no geocoding call.
+2. **Route:** one call to OSRM's public server, with a second public OSRM server tried only if the first fails. Cached for a day by the resolved coordinates.
+3. **Stations along the route:** the route is cut into ~50-mile stretches; one indexed database query returns the stations inside a box around any stretch, then each candidate gets its exact distance to the road and its mile along it.
+4. **Fuel plan:** dynamic programming over stations, fuel level and number of stops (numpy, about 40 ms coast to coast) gives the cheapest cost for every stop count; the default takes the fewest stops within 1% of the cheapest.
+5. **Response:** the route line is simplified from tens of thousands of points to a few thousand, and every stop carries its explanation.
 
-## Speed and external calls
+## Decisions and assumptions
 
-A new trip makes exactly one external call (OSRM) and takes about 1 to 1.5 seconds, nearly all of it the routing call. Repeating a trip makes none: the route is cached for a day by the resolved start and finish (so "Chicago" and "Chicago, IL" share it), and the answer takes about 100 ms. Only the route is cached, not the fuel plan, so reloading prices never serves a stale plan. The cache is in memory by default; set `REDIS_URL` to share it across server processes (`docker compose up -d` starts a Redis).
-
-## What to send
-
-`start` and `finish` each take one of two formats:
-
-- a city and state: `Chicago, IL` or `Chicago, Illinois`
-- coordinates, latitude first: `41.88,-87.63`
-
-A city with no state is accepted when it's far bigger than every other US place with that name (`Chicago`, `Los Angeles`); ambiguous names like `Portland` get a 400 listing the options. Anything else gets a 400 with a message saying what to send. Small typos are corrected (`Chicgo, Ilinois` becomes Chicago, IL) and the response says what it was read as; names too far off get suggestions instead of a guess. Place names are looked up in a local list, so the only external call per request is the route itself.
+- **The vehicle starts with a full tank.** `fuel_bought_usd` is what's bought on the way; `trip_fuel_cost_usd` also prices the starting tank at the first listed station on the route, so a short trip never shows a bare $0.
+- **Balanced by default.** The truly cheapest plan for Seattle to Miami makes 20 stops; every stop costs a driver time, so the default trades up to 1% more fuel cost for far fewer stops. `mode=cheapest` is one parameter away.
+- **Duplicate prices:** some stations are listed up to six times with different prices and no dates. Each is priced at the median of its listed prices; the lowest would favour stations listed more often, since each extra row is another chance to look cheap.
+- **Station positions:** where the address names a highway exit, the station sits at that exit (OpenStreetMap data, same state, same exit number, nearest the town); it counts as on the route within 3 miles. Otherwise it sits at its town's centre and counts within 10 miles, since that position is approximate.
+- **Only US stations:** trips start and finish in the USA, and the file doesn't say what currency its Canadian prices are in.
+- **Routing:** OSRM needs no key, so the project runs exactly as shown for anyone. Its public servers route cars; a truck routing profile would be a change to one module.
 
 ## Known data gap
 
-The price list has no stations on I-5 between Halsey, Oregon and southern California, and none in central or northern California (its 16 California stations are all in the south-east). Trips that would have to refuel there, like San Francisco to Seattle, return a 422 that names the gap rather than inventing a stop.
+The price list has no stations on I-5 between Halsey, Oregon and southern California, and none in central or northern California (its 16 California stations are all in the far south-east). Trips that must refuel there, like San Francisco to Seattle, return a 422 naming the gap rather than inventing a stop.
 
-## The station data
-
-The price file has no coordinates, so stations are placed on the map once, offline, and the result (`data/stations.csv`) is committed. `migrate` loads it into the database the first time it runs; after rebuilding the file, reload it with `python manage.py load_stations`. To rebuild it:
+## Tests
 
 ```bash
-python scripts/build_places.py     # US place list from GeoNames -> data/us_places.csv.gz
-python scripts/fetch_exits.py      # numbered motorway exits from OpenStreetMap -> data/osm_exits.csv (slow: public servers)
-python scripts/build_stations.py   # clean the price file and place each station -> data/stations.csv
+python manage.py test    # 35 tests; the routing service is faked, nothing calls the internet
 ```
 
-Cleaning: 620 Canadian rows dropped (trips start and finish in the USA, and the file doesn't say what currency those prices are in); 905 duplicate rows merged into one row per station ID, priced at the median of its listed prices (there are no dates to pick the latest, and the lowest would favour stations that are listed more often); stray spaces trimmed. 6,626 US stations, all placed: 3,389 at the highway exit their address names ("I-80, EXIT 439"), matched against OpenStreetMap's exits (`scripts/fetch_exits.py`, `data/osm_exits.csv`); the rest at their town's centre, 8 of those from hand-checked lookups in `data/place_fixes.csv`. A station counts as on the route within 3 miles if it's at a known exit, or 10 miles if it's placed at its town's centre, since that position is approximate.
+They cover the optimiser against brute force, the station search, place lookup and typos, routing fallbacks and caching, the data cleaning, and the API's responses and errors.
+
+## Project layout
+
+```
+fuel/
+  places.py      place names to coordinates (local list, typo correction)
+  routing.py     the OSRM call, its fallback and the route cache
+  corridor.py    stations along a route (indexed box query, exact distance, mile marker)
+  optimizer.py   where to buy fuel and how much (no Django inside)
+  planner.py     one trip end to end, and the response
+  views.py       the endpoint: input checks and error codes
+scripts/         one-time data builds (below)
+data/            the provided price file and the built data, committed
+postman/         the Postman collection
+```
+
+## Rebuilding the station data
+
+Already done and committed; only needed if the price file changes.
+
+```bash
+python scripts/build_places.py      # US place list from GeoNames -> data/us_places.csv.gz
+python scripts/fetch_exits.py       # numbered motorway exits from OpenStreetMap -> data/osm_exits.csv (slow)
+python scripts/build_stations.py    # clean the price file and place each station -> data/stations.csv
+python manage.py load_stations      # reload it into the database
+```
+
+Data: GeoNames (CC BY 4.0) and OpenStreetMap (ODbL, © OpenStreetMap contributors).
