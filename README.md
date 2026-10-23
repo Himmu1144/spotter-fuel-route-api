@@ -2,6 +2,8 @@
 
 [![tests](https://github.com/Himmu1144/spotter-fuel-route-api/actions/workflows/tests.yml/badge.svg)](https://github.com/Himmu1144/spotter-fuel-route-api/actions/workflows/tests.yml)
 
+**Video walkthrough (Loom, 4:48):** https://www.loom.com/share/539b281fab19413f9d081754095675ec
+
 A Django API that takes a start and finish in the USA and returns the driving route on a map, cost-effective fuel stops for a vehicle with a 500-mile range, and the total fuel cost at 10 miles per gallon, using the provided fuel price list.
 
 ![Seattle to Miami: the route, eight numbered fuel stops, and why each one buys what it does](docs/map-seattle-miami.jpg)
