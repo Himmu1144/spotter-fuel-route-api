@@ -8,6 +8,7 @@ request time to resolve the user's start and finish.
 import csv
 import difflib
 import gzip
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -51,11 +52,11 @@ STATES = {
 _STATE_CODES = {**{code.lower(): code for code in STATES},
                 **{name.lower(): code for code, name in STATES.items()}}
 
-# Rough boxes around the lower 48, Alaska and Hawaii, to reject coordinates outside the USA.
-_US_BOXES = [(24.3, 49.5, -125.0, -66.8), (51.0, 71.5, -180.0, -129.0), (18.8, 22.4, -160.4, -154.7)]
 _COORDINATES = re.compile(r'^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$')
 
 PLACES_FILE = Path(__file__).resolve().parent.parent / 'data' / 'us_places.csv.gz'
+# The US border (US Census Bureau), built once by scripts/build_us_outline.py.
+OUTLINE_FILE = Path(__file__).resolve().parent.parent / 'data' / 'us_outline.json.gz'
 FORMAT_HELP = 'Use a city and state, e.g. "Chicago, IL" or "Chicago, Illinois", or coordinates, e.g. "41.88,-87.63".'
 
 
@@ -110,9 +111,33 @@ def _closest(key, code):
                                           -places[(m, code)][3]))
 
 
+@cache
+def _outline():
+    """The US border as polygons, each with its bounding box so most can be skipped at once."""
+    with gzip.open(OUTLINE_FILE, 'rt', encoding='utf-8') as f:
+        polygons = json.load(f)
+    return [((min(x for x, _ in p['outer']), max(x for x, _ in p['outer']),
+              min(y for _, y in p['outer']), max(y for _, y in p['outer'])), p['outer'], p['holes'])
+            for p in polygons]
+
+
+def _inside(longitude, latitude, ring):
+    """Ray casting: a point is inside if a line from it crosses the ring's edge an odd number of times."""
+    inside, j = False, len(ring) - 1
+    for i, (xi, yi) in enumerate(ring):
+        xj, yj = ring[j]
+        if (yi > latitude) != (yj > latitude) and longitude < (xj - xi) * (latitude - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
 def in_usa(latitude, longitude):
-    return any(south <= latitude <= north and west <= longitude <= east
-               for south, north, west, east in _US_BOXES)
+    """Whether a point is inside the US border (50 states and DC, plus territories)."""
+    return any(west <= longitude <= east and south <= latitude <= north
+               and _inside(longitude, latitude, outer)
+               and not any(_inside(longitude, latitude, hole) for hole in holes)
+               for (west, east, south, north), outer, holes in _outline())
 
 
 def resolve(text):

@@ -10,10 +10,13 @@ dynamic programming, done on whole numpy arrays so a coast-to-coast route with
 
 Fuel is counted in miles of driving (one unit = 1/mpg gallons) and station
 positions are rounded to the nearest mile. Rounding positions, rather than the
-gaps between them, keeps the error from adding up along the route.
+gaps between them, keeps the error from adding up along the route; planning
+with a one-mile reserve means rounding can never let a leg exceed the range.
 
-From the cost-by-stops table it picks a plan:
-  cheapest  the lowest cost, however many stops that takes,
+Plans have at most MAX_STOPS stops: no driver makes more on one trip, and the
+cheapest plan on a real US route needs about 20. From the cost-by-stops table
+it picks a plan:
+  cheapest  the lowest cost with up to MAX_STOPS stops,
   balanced  the fewest stops whose cost is within TOLERANCE of the cheapest.
 """
 
@@ -23,6 +26,7 @@ import numpy as np
 
 TOLERANCE = 0.01
 MAX_STOPS = 30
+RESERVE_MILES = 1
 
 
 class RouteNotFeasible(Exception):
@@ -46,6 +50,8 @@ class FuelPlan:
     fuel_cost: float
     cheapest_cost: float
     cheapest_stops: int
+    # True if the cheapest plan used every allowed stop, so more stops might have been cheaper.
+    stop_limit_reached: bool = False
 
 
 def plan_fuel(miles, prices, total_miles, *, range_miles=500, mpg=10.0,
@@ -55,7 +61,7 @@ def plan_fuel(miles, prices, total_miles, *, range_miles=500, mpg=10.0,
     miles: each station's position along the route, in increasing order.
     prices: each station's price per gallon.
     """
-    tank = int(range_miles)
+    tank = int(range_miles) - RESERVE_MILES
     positions = [round(m) for m in miles]
     end = round(total_miles)
     if end <= tank:
@@ -96,7 +102,9 @@ def plan_fuel(miles, prices, total_miles, *, range_miles=500, mpg=10.0,
         chosen = int(np.argmax(by_stops <= cheapest * (1 + tolerance) + 1e-9))
 
     purchases = _trace_back(choices, positions, cost, chosen, last_leg, prices, mpg)
-    return FuelPlan(purchases, float(by_stops[chosen]), cheapest, int(np.argmin(by_stops)))
+    cheapest_stops = int(np.argmin(by_stops))
+    limited = cheapest_stops == max_stops < len(positions)
+    return FuelPlan(purchases, float(by_stops[chosen]), cheapest, cheapest_stops, limited)
 
 
 def _check_gaps(rounded, exact, tank):

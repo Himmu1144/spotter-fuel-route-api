@@ -3,9 +3,10 @@ import random
 
 from django.test import SimpleTestCase
 
-from fuel.optimizer import RouteNotFeasible, plan_fuel
+from fuel.optimizer import RESERVE_MILES, RouteNotFeasible, plan_fuel
 
-TANK, MPG = 500, 10.0
+# Plans keep a one-mile reserve, so the usable tank is 499 miles.
+TANK, MPG = 500 - RESERVE_MILES, 10.0
 
 
 def cost_with_stops_at(stops, total):
@@ -54,20 +55,35 @@ class PlanFuelTests(SimpleTestCase):
         self.assertEqual((plan.purchases, plan.fuel_cost), ([], 0.0))
 
     def test_waits_for_the_cheaper_station(self):
-        # Full tank reaches mile 500. Buying at the $3 station covers the rest more cheaply.
-        plan = plan_fuel([100, 400], [4.0, 3.0], 900)
-        self.assertEqual([(p.index, p.gallons) for p in plan.purchases], [(1, 40.0)])
-        self.assertAlmostEqual(plan.fuel_cost, 120.0)
+        # Arrive at the $3 station (mile 400) with 99 miles left; 39.1 gal there reaches mile 890.
+        # Buying at the $4 station instead would only cost more.
+        plan = plan_fuel([100, 400], [4.0, 3.0], 890)
+        self.assertEqual([(p.index, round(p.gallons, 2)) for p in plan.purchases], [(1, 39.1)])
+        self.assertAlmostEqual(plan.fuel_cost, 117.30)
 
     def test_balanced_takes_one_stop_when_two_save_under_one_percent(self):
-        # Cheapest: 10 gal at $3.00 then 40 gal at $2.99 = $149.60 over two stops.
-        # One stop: 50 gal at $3.00 = $150.00, 0.27% more.
-        miles, prices = [500, 600], [3.00, 2.99]
-        cheapest = plan_fuel(miles, prices, 1000, mode='cheapest')
-        balanced = plan_fuel(miles, prices, 1000)
-        self.assertEqual((len(cheapest.purchases), round(cheapest.fuel_cost, 2)), (2, 149.60))
-        self.assertEqual((len(balanced.purchases), round(balanced.fuel_cost, 2)), (1, 150.00))
-        self.assertEqual((balanced.cheapest_stops, round(balanced.cheapest_cost, 2)), (2, 149.60))
+        # Cheapest: 0.1 gal at $3.00 (mile 400) to reach mile 500, then 39 gal at $2.99 = $116.91.
+        # One stop: 39.1 gal at $3.00 = $117.30, 0.33% more.
+        miles, prices = [400, 500], [3.00, 2.99]
+        cheapest = plan_fuel(miles, prices, 890, mode='cheapest')
+        balanced = plan_fuel(miles, prices, 890)
+        self.assertEqual((len(cheapest.purchases), round(cheapest.fuel_cost, 2)), (2, 116.91))
+        self.assertEqual((len(balanced.purchases), round(balanced.fuel_cost, 2)), (1, 117.30))
+        self.assertEqual((balanced.cheapest_stops, round(balanced.cheapest_cost, 2)), (2, 116.91))
+
+    def test_keeps_a_one_mile_reserve_so_rounding_never_stretches_the_range(self):
+        self.assertEqual(plan_fuel([], [], 499.4).purchases, [])
+        with self.assertRaises(RouteNotFeasible):
+            plan_fuel([], [], 500.0)
+
+    def test_says_when_the_stop_limit_was_reached(self):
+        # Ever-cheaper stations every 10 miles: the cheapest plan would stop at each one.
+        miles = list(range(100, 600, 10))
+        prices = [4.0 - i * 0.01 for i in range(len(miles))]
+        limited = plan_fuel(miles, prices, 900, mode='cheapest', max_stops=5)
+        self.assertEqual(len(limited.purchases), 5)
+        self.assertTrue(limited.stop_limit_reached)
+        self.assertFalse(plan_fuel(miles, prices, 900, mode='cheapest').stop_limit_reached)
 
     def test_gap_wider_than_a_tank(self):
         with self.assertRaises(RouteNotFeasible) as raised:

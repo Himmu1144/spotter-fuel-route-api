@@ -10,7 +10,7 @@ from django.conf import settings
 
 from .corridor import stations_along
 from .geo import simplify
-from .optimizer import RouteNotFeasible, plan_fuel
+from .optimizer import MAX_STOPS, RouteNotFeasible, plan_fuel
 from .places import resolve
 from .routing import get_route
 
@@ -78,6 +78,9 @@ def plan_trip(start_text, finish_text, mode='balanced'):
     starting_tank_cost = max(gallons_used - gallons_bought, 0) * tank_price
     lap('response')
 
+    summary_warning = ({'warning': f'The cheapest plan used all {MAX_STOPS} allowed stops; '
+                                   f'a plan with more stops might cost slightly less.'}
+                       if plan.stop_limit_reached else {})
     return {
         'start': _place(start_text, start),
         'finish': _place(finish_text, finish),
@@ -87,6 +90,7 @@ def plan_trip(start_text, finish_text, mode='balanced'):
             'mode': mode,
             'stops': len(stops),
             'plan': _plan_explanation(mode, plan, len(stops)),
+            'stop_limit': MAX_STOPS,
             'fuel_bought_usd': round(plan.fuel_cost, 2),
             'trip_fuel_cost_usd': round(plan.fuel_cost + starting_tank_cost, 2),
             'gallons_bought': round(gallons_bought, 2),
@@ -94,7 +98,9 @@ def plan_trip(start_text, finish_text, mode='balanced'):
             'assumptions': (
                 f'{settings.VEHICLE_MPG:g} mpg and a {settings.VEHICLE_RANGE_MILES:.0f}-mile range. The vehicle '
                 f'starts with a full tank: fuel_bought_usd is the fuel bought on the way; trip_fuel_cost_usd '
-                f'also counts the starting tank, priced at {tank_priced_at}.'),
+                f'also counts the starting tank, priced at {tank_priced_at}. Mileage is along the route; '
+                f'the short detour to each station (off_route_miles) is not added.'),
+            **summary_warning,
         },
         'compared_to_cheapest': {
             'cheapest_cost_usd': round(plan.cheapest_cost, 2),
@@ -174,7 +180,7 @@ def _starting_tank_price(along):
 
 def _plan_explanation(mode, plan, stops):
     if mode == 'cheapest':
-        return 'cheapest: the lowest fuel cost, however many stops it takes.'
+        return f'cheapest: the lowest fuel cost with up to {MAX_STOPS} stops.'
     if stops == plan.cheapest_stops:
         return 'balanced: the fewest stops within 1% of the cheapest plan. Here that is also the cheapest plan.'
     return (f'balanced: the fewest stops within 1% of the cheapest plan. The cheapest plan costs '

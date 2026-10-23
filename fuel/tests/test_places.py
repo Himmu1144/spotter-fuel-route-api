@@ -29,6 +29,9 @@ class ResolveTests(SimpleTestCase):
             ', IL': 'has no city',
             'Toronto, ON': 'is not a US state',
             '51.5,-0.12': 'is not in the USA',
+            '49.2827,-123.1207': 'is not in the USA',   # Vancouver, inside the old rough box
+            '32.5149,-117.0382': 'is not in the USA',   # Tijuana
+            '42.3149,-83.0364': 'is not in the USA',    # Windsor, across the river from Detroit
             '-87.63,41.88': 'Latitude comes first',
             'Xyz, CA': 'Could not find',
             '': 'empty',
@@ -55,3 +58,13 @@ class NoStateTests(SimpleTestCase):
         self.assertIn('several places called "Portland"', message)
         self.assertIn('Portland, OR; Portland, ME', message)
         self.assertIn('Use a city and state', message)
+
+
+class InUsaTests(SimpleTestCase):
+    def test_border_towns_on_the_us_side(self):
+        from fuel.places import in_usa
+        for name, (latitude, longitude) in {'Blaine, WA': (48.9937, -122.7471), 'Detroit, MI': (42.3314, -83.0458),
+                                            'Calexico, CA': (32.6789, -115.4989), 'Key West, FL': (24.5551, -81.78),
+                                            'Honolulu, HI': (21.3069, -157.8583), 'Anchorage, AK': (61.2181, -149.9003)}.items():
+            with self.subTest(name=name):
+                self.assertTrue(in_usa(latitude, longitude))

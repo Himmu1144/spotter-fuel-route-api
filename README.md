@@ -10,12 +10,12 @@ A Django API that takes a start and finish in the USA and returns the driving ro
 
 - **One external call per trip, none on a repeat.** Places are resolved locally; only the route comes from OSRM (free, no key), and it's cached. Every response reports its call count.
 - **Fast:** about 1.5 to 2 s for a new coast-to-coast trip, nearly all of it the routing call; about 120 ms when the route is cached.
-- **Practical, not just cheapest.** By default it picks the fewest stops within 1% of the cheapest plan: Seattle to Miami is 8 stops for $852.39, against 20 stops for $848.75. `mode=cheapest` gives the pure cheapest.
-- **Optimal, and checked.** The optimiser finds the cheapest plan for every number of stops; a test compares it with brute force on 300 random trips.
+- **Practical, not just cheapest.** By default it picks the fewest stops within 1% of the cheapest plan: Seattle to Miami is 8 stops for $852.75, against 22 stops for $849.11. `mode=cheapest` gives the cheapest.
+- **Optimal, and checked.** The optimiser finds the cheapest plan for every number of stops up to 30 (no real trip needs more; the response warns if the limit is ever reached); a test compares it with brute force on 300 random trips.
 - **The messy price file, handled.** It has no coordinates, so stations are placed once, offline: 3,389 at the actual highway exit their address names ("I-80, EXIT 439"), the rest at their town. 905 duplicate rows are priced at their median, and Canadian rows are dropped.
-- **Forgiving input, strict contract.** `City, ST`, `City, State` or `lat,lon`. Typos are corrected and reported ("Chicgo" is read as Chicago), "Chicago" alone works, and "Portland" gets a list of the options instead of a guess.
+- **Forgiving input, strict contract.** `City, ST`, `City, State` or `lat,lon`, checked against the real US border. Typos are corrected and reported ("Chicgo" is read as Chicago), "Chicago" alone works, and "Portland" gets a list of the options instead of a guess.
 - **Every number explains itself.** Each stop says why it buys that amount and how its price and location were worked out; errors say exactly what went wrong, including where the price list has no stations.
-- **Real Django underneath:** models, an indexed station query, migrations that load the data, 35 tests run in CI on SQLite and Postgres, and Redis caching when configured.
+- **Real Django underneath:** models, an indexed station query, migrations that load the data, 38 tests run in CI on SQLite and Postgres, and Redis caching when configured.
 
 ## Quick start
 
@@ -45,15 +45,15 @@ GET /api/route/?start=Chicago, IL&finish=Denver, CO[&mode=cheapest]
   "summary": {
     "distance_miles": 1004.8, "drive_hours": 17.9, "stops": 2,
     "plan": "balanced: the fewest stops within 1% of the cheapest plan. Here that is also the cheapest plan.",
-    "fuel_bought_usd": 142.07,      // bought on the way
-    "trip_fuel_cost_usd": 321.19,   // all fuel burned, counting the full tank it starts with
-    "gallons_bought": 50.5, "gallons_used": 100.48
+    "fuel_bought_usd": 142.36,      // bought on the way
+    "trip_fuel_cost_usd": 320.37,   // all fuel burned, counting the full tank it starts with
+    "gallons_bought": 50.6, "gallons_used": 100.48, "stop_limit": 30
   },
-  "compared_to_cheapest": { "cheapest_cost_usd": 142.07, "cheapest_stops": 2, "extra_cost_usd": 0.0 },
+  "compared_to_cheapest": { "cheapest_cost_usd": 142.36, "cheapest_stops": 2, "extra_cost_usd": 0.0 },
   "stops": [
     {
       "order": 1, "name": "KUM & GO #0370", "city": "Gretna", "state": "NE",
-      "mile": 480.6, "off_route_miles": 0.0, "price_per_gallon": 2.921, "gallons": 5.9, "cost_usd": 17.23,
+      "mile": 480.6, "off_route_miles": 0.0, "price_per_gallon": 2.921, "gallons": 6.0, "cost_usd": 17.52,
       "why": "Just enough to reach stop 2, 78 miles on, where fuel is cheaper ($2.799).",
       "price_basis": "the one price listed for this station",
       "location_basis": "the highway exit named in its address (I-80, EXIT 439 & SR-370)"
@@ -61,7 +61,7 @@ GET /api/route/?start=Chicago, IL&finish=Denver, CO[&mode=cheapest]
     // ...
   ],
   "map": { "type": "FeatureCollection", "features": [ /* route line and stops, GeoJSON */ ] },
-  "meta": { "external_calls": 1, "route_cached": false, "timing_ms": { "routing": 798.0, "stations": 39.3, "fuel_plan": 28.2 } }
+  "meta": { "external_calls": 1, "route_cached": false, "timing_ms": { "routing": 767.2, "stations": 21.2, "fuel_plan": 21.9 } }
 }
 ```
 
@@ -69,7 +69,7 @@ Errors share one shape, `{"error": {"code": ..., "message": ...}}`: **400** for 
 
 ## How it works
 
-1. **Places:** `start` and `finish` are looked up in a local list of 188,000 US places (from GeoNames), so no geocoding call.
+1. **Places:** `start` and `finish` are looked up in a local list of 188,000 US places (from GeoNames), so no geocoding call; coordinates are checked against the US border (US Census Bureau).
 2. **Route:** one call to OSRM's public server, with a second public OSRM server tried only if the first fails. Cached for a day by the resolved coordinates.
 3. **Stations along the route:** the route is cut into ~50-mile stretches; one indexed database query returns the stations inside a box around any stretch, then each candidate gets its exact distance to the road and its mile along it.
 4. **Fuel plan:** dynamic programming over stations, fuel level and number of stops (numpy, about 40 ms coast to coast) gives the cheapest cost for every stop count; the default takes the fewest stops within 1% of the cheapest.
@@ -78,7 +78,10 @@ Errors share one shape, `{"error": {"code": ..., "message": ...}}`: **400** for 
 ## Decisions and assumptions
 
 - **The vehicle starts with a full tank.** `fuel_bought_usd` is what's bought on the way; `trip_fuel_cost_usd` also prices the starting tank at the first listed station on the route, so a short trip never shows a bare $0.
-- **Balanced by default.** The truly cheapest plan for Seattle to Miami makes 20 stops; every stop costs a driver time, so the default trades up to 1% more fuel cost for far fewer stops. `mode=cheapest` is one parameter away.
+- **Balanced by default.** The cheapest plan for Seattle to Miami makes 22 stops; every stop costs a driver time, so the default trades up to 1% more fuel cost for far fewer stops. `mode=cheapest` is one parameter away.
+- **At most 30 stops.** "Cheapest" means the cheapest plan a driver would follow: up to 30 stops, where real routes need about 20. If the cheapest plan ever uses all 30, the response says so.
+- **A one-mile reserve.** Station positions are rounded to the mile, so plans keep a mile in the tank; rounding can never stretch a leg past the 500-mile range.
+- **Detours aren't counted.** Mileage is measured along the route; the short detour to each station (shown as `off_route_miles`, usually under a mile for stations at an exit) isn't added to fuel use.
 - **Duplicate prices:** some stations are listed up to six times with different prices and no dates. Each is priced at the median of its listed prices; the lowest would favour stations listed more often, since each extra row is another chance to look cheap.
 - **Station positions:** where the address names a highway exit, the station sits at that exit (OpenStreetMap data, same state, same exit number, nearest the town); it counts as on the route within 3 miles. Otherwise it sits at its town's centre and counts within 10 miles, since that position is approximate.
 - **Only US stations:** trips start and finish in the USA, and the file doesn't say what currency its Canadian prices are in.
@@ -94,6 +97,7 @@ The price list has no stations on I-5 between Halsey, Oregon and southern Califo
 - **Station search:** PostGIS, with a spatial index and one query for "stations within X miles of this route line". A latitude/longitude index with boxes is fine for 6,600 stations, not for millions.
 - **Prices:** ingest the price feed on a schedule, with timestamps, and use each station's latest price instead of the median. Only routes are cached, so new prices take effect immediately.
 - **Cache under load:** a lock per trip, so identical requests arriving together make one routing call instead of several.
+- **Detours:** add each station's detour, there and back, to fuel use and range, or route through the chosen stops.
 - **Vehicle inputs:** current fuel level, tank size and mpg per truck as inputs, instead of the fixed full tank, 500-mile range and 10 mpg from the brief.
 - **Gaps in the price list:** let a dispatcher opt in to off-network fill-ups priced at retail where the network has no station, as on I-5 in California.
 
@@ -102,7 +106,7 @@ Deployment itself would be the usual Django setup: `DEBUG` off with a real secre
 ## Tests
 
 ```bash
-python manage.py test    # 35 tests; the routing service is faked, nothing calls the internet
+python manage.py test    # 38 tests; the routing service is faked, nothing calls the internet
 ```
 
 They cover the optimiser against brute force, the station search, place lookup and typos, routing fallbacks and caching, the data cleaning, and the API's responses and errors.
@@ -128,9 +132,10 @@ Already done and committed; only needed if the price file changes.
 
 ```bash
 python scripts/build_places.py      # US place list from GeoNames -> data/us_places.csv.gz
+python scripts/build_us_outline.py  # US border from the US Census Bureau -> data/us_outline.json.gz
 python scripts/fetch_exits.py       # numbered motorway exits from OpenStreetMap -> data/osm_exits.csv (slow)
 python scripts/build_stations.py    # clean the price file and place each station -> data/stations.csv
 python manage.py load_stations      # reload it into the database
 ```
 
-Data: GeoNames (CC BY 4.0) and OpenStreetMap (ODbL, © OpenStreetMap contributors).
+Data: GeoNames (CC BY 4.0), OpenStreetMap (ODbL, © OpenStreetMap contributors) and the US Census Bureau (public domain).
