@@ -9,7 +9,7 @@ A Django API that takes a start and finish in the USA and returns the driving ro
 ## Highlights
 
 - **One external call per trip, none on a repeat.** Places are resolved locally; only the route comes from OSRM (free, no key), and it's cached. Every response reports its call count.
-- **Fast:** about 1.5 s for a new coast-to-coast trip, nearly all of it the routing call; about 120 ms when the route is cached.
+- **Fast:** about 1.5 to 2 s for a new coast-to-coast trip, nearly all of it the routing call; about 120 ms when the route is cached.
 - **Practical, not just cheapest.** By default it picks the fewest stops within 1% of the cheapest plan: Seattle to Miami is 8 stops for $852.39, against 20 stops for $848.75. `mode=cheapest` gives the pure cheapest.
 - **Optimal, and checked.** The optimiser finds the cheapest plan for every number of stops; a test compares it with brute force on 300 random trips.
 - **The messy price file, handled.** It has no coordinates, so stations are placed once, offline: 3,389 at the actual highway exit their address names ("I-80, EXIT 439"), the rest at their town. 905 duplicate rows are priced at their median, and Canadian rows are dropped.
