@@ -1,0 +1,378 @@
+{
+  "info": {
+    "name": "Fuel Route API",
+    "description": "Run the server (python manage.py runserver) and send these in order. baseUrl defaults to http://127.0.0.1:8000.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Seattle to Miami: the full plan",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('200 with a plan', () => pm.response.to.have.status(200));",
+              "pm.test('has stops and a map link', () => { pm.expect(body.stops.length).to.be.above(0); pm.expect(body.map_url).to.include('/map/'); });",
+              "pm.test('at most one external call', () => pm.expect(body.meta.external_calls).to.be.at.most(1));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/route/?start=Seattle, WA&finish=Miami, FL",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "route",
+            ""
+          ],
+          "query": [
+            {
+              "key": "start",
+              "value": "Seattle, WA"
+            },
+            {
+              "key": "finish",
+              "value": "Miami, FL"
+            }
+          ]
+        },
+        "description": "A coast-to-coast trip. Open map_url in a browser to see the route and stops. meta shows the single routing call and where the time went."
+      }
+    },
+    {
+      "name": "2. The same trip again: from the cache",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('route came from the cache, no external call', () => { pm.expect(body.meta.route_cached).to.be.true; pm.expect(body.meta.external_calls).to.eql(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/route/?start=Seattle, WA&finish=Miami, FL",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "route",
+            ""
+          ],
+          "query": [
+            {
+              "key": "start",
+              "value": "Seattle, WA"
+            },
+            {
+              "key": "finish",
+              "value": "Miami, FL"
+            }
+          ]
+        },
+        "description": "A repeat makes no routing call: the route is cached by the resolved start and finish."
+      }
+    },
+    {
+      "name": "3. Cheapest mode: more stops, a few dollars less",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('cheapest plan equals the cheapest cost', () => pm.expect(body.summary.fuel_bought_usd).to.eql(body.compared_to_cheapest.cheapest_cost_usd));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/route/?start=Seattle, WA&finish=Miami, FL&mode=cheapest",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "route",
+            ""
+          ],
+          "query": [
+            {
+              "key": "start",
+              "value": "Seattle, WA"
+            },
+            {
+              "key": "finish",
+              "value": "Miami, FL"
+            },
+            {
+              "key": "mode",
+              "value": "cheapest"
+            }
+          ]
+        },
+        "description": "The absolute cheapest plan. Compare its stop count with the default balanced plan."
+      }
+    },
+    {
+      "name": "4. Short trip: no stop needed",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('no stops, but the trip fuel is still costed', () => { pm.expect(body.summary.stops).to.eql(0); pm.expect(body.summary.trip_fuel_cost_usd).to.be.above(0); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/route/?start=Chicago, IL&finish=Indianapolis, IN",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "route",
+            ""
+          ],
+          "query": [
+            {
+              "key": "start",
+              "value": "Chicago, IL"
+            },
+            {
+              "key": "finish",
+              "value": "Indianapolis, IN"
+            }
+          ]
+        },
+        "description": "Under 500 miles the full starting tank is enough: nothing is bought on the way, and trip_fuel_cost_usd still prices the fuel used."
+      }
+    },
+    {
+      "name": "5. Typos are corrected and reported",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('read as Chicago, IL with a note', () => { pm.expect(body.start.resolved).to.eql('Chicago, IL'); pm.expect(body.start.note).to.include('Chicgo'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/route/?start=Chicgo, Ilinois&finish=Denver",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "route",
+            ""
+          ],
+          "query": [
+            {
+              "key": "start",
+              "value": "Chicgo, Ilinois"
+            },
+            {
+              "key": "finish",
+              "value": "Denver"
+            }
+          ]
+        },
+        "description": "Small typos in the city or state are corrected and the response says how they were read. \"Denver\" works without a state because it clearly dominates its namesakes."
+      }
+    },
+    {
+      "name": "6. Ambiguous city: 400 with the options",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('400 listing the Portlands', () => { pm.response.to.have.status(400); pm.expect(body.error.message).to.include('Portland, OR'); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/route/?start=Portland&finish=Denver, CO",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "route",
+            ""
+          ],
+          "query": [
+            {
+              "key": "start",
+              "value": "Portland"
+            },
+            {
+              "key": "finish",
+              "value": "Denver, CO"
+            }
+          ]
+        },
+        "description": "Names that exist in several states are refused with the options and the accepted formats, rather than guessed."
+      }
+    },
+    {
+      "name": "7. A stretch the price list cannot fuel: 422",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('422 naming the gap', () => { pm.response.to.have.status(422); pm.expect(body.error.gap.miles).to.be.above(500); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/route/?start=San Francisco, CA&finish=Seattle, WA",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "route",
+            ""
+          ],
+          "query": [
+            {
+              "key": "start",
+              "value": "San Francisco, CA"
+            },
+            {
+              "key": "finish",
+              "value": "Seattle, WA"
+            }
+          ]
+        },
+        "description": "The price list has no stations on I-5 in central and northern California, so this trip has a stretch longer than one tank. The error says where."
+      }
+    },
+    {
+      "name": "8. Health",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('stations are loaded', () => pm.expect(pm.response.json().stations).to.eql(6626));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/health/",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "health",
+            ""
+          ]
+        },
+        "description": "The app is up and how many stations are loaded."
+      }
+    }
+  ]
+}
