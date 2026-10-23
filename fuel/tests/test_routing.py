@@ -1,6 +1,7 @@
 from unittest import mock
 
 import requests
+from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
 from fuel.places import Location
@@ -24,6 +25,9 @@ OK = osrm_reply({'code': 'Ok', 'routes': [{'geometry': GEOMETRY, 'distance': 160
 
 @override_settings(OSRM_SERVERS=SERVERS)
 class GetRouteTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+
     @mock.patch('fuel.routing.requests.get', return_value=OK)
     def test_one_call_when_the_first_server_answers(self, get):
         route = get_route(START, FINISH)
@@ -32,6 +36,14 @@ class GetRouteTests(SimpleTestCase):
         self.assertAlmostEqual(route.distance_miles, 100)
         self.assertAlmostEqual(route.duration_hours, 2)
         self.assertEqual(route.points, [(38.5, -120.2), (40.7, -120.95)])
+
+    @mock.patch('fuel.routing.requests.get', return_value=OK)
+    def test_a_repeat_trip_comes_from_the_cache_with_no_call(self, get):
+        first, again = get_route(START, FINISH), get_route(START, FINISH)
+        self.assertEqual(get.call_count, 1)
+        self.assertEqual((first.calls, first.cached), (1, False))
+        self.assertEqual((again.calls, again.cached), (0, True))
+        self.assertEqual(again.points, first.points)
 
     @mock.patch('fuel.routing.requests.get', side_effect=[requests.Timeout(), OK])
     def test_falls_back_to_the_next_server(self, get):

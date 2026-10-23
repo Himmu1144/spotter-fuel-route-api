@@ -2,13 +2,16 @@
 
 OSRM's public servers need no key. They are run by volunteers with no uptime
 promise, so if the first server fails the request is tried once on the next.
-A normal request makes exactly one call.
+A normal request makes exactly one call, and a repeat of the same trip makes
+none: routes are cached by their resolved start and finish. Only the route is
+cached, not the fuel plan, so reloading station prices never serves a stale plan.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 
 METERS_PER_MILE = 1609.344
 USER_AGENT = 'spotter-fuel-route-api'
@@ -29,10 +32,23 @@ class Route:
     duration_hours: float
     provider: str
     calls: int
+    cached: bool = False
 
 
 def get_route(start, finish):
-    """Route between two Locations. Tries each server in OSRM_SERVERS until one answers."""
+    """Route between two Locations, from the cache if this trip was routed recently."""
+    key = (f'route:{start.latitude:.5f},{start.longitude:.5f}:'
+           f'{finish.latitude:.5f},{finish.longitude:.5f}')
+    route = cache.get(key)
+    if route is not None:
+        return replace(route, calls=0, cached=True)
+    route = _fetch_route(start, finish)
+    cache.set(key, route, settings.ROUTE_CACHE_SECONDS)
+    return route
+
+
+def _fetch_route(start, finish):
+    """Ask OSRM, trying each server in OSRM_SERVERS until one answers."""
     path = f'route/v1/driving/{start.longitude},{start.latitude};{finish.longitude},{finish.latitude}'
     params = {'overview': 'full', 'geometries': 'polyline6', 'steps': 'false'}
     failures = []

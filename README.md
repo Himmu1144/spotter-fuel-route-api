@@ -18,7 +18,7 @@ python manage.py runserver
 
 Check it's up: <http://127.0.0.1:8000/api/health/> (shows how many stations are loaded)
 
-Runs on SQLite with no setup. To use Postgres instead, start one with `docker compose up -d` and set `DATABASE_URL` as shown in `.env.example`.
+Runs on SQLite with an in-memory cache and no setup. To run on Postgres and Redis instead, start them with `docker compose up -d` and set `DATABASE_URL` and `REDIS_URL` as shown in `.env.example`.
 
 ## Use it
 
@@ -33,11 +33,15 @@ Returns, summary first:
 - `compared_to_cheapest`: what the absolute cheapest plan would cost, and how many stops it needs
 - `stops`: each stop in order, with its mile along the route, price (and how that price was worked out), gallons and cost
 - `map`: the route and stops as GeoJSON (paste into geojson.io to view)
-- `meta`: which routing server answered, how many external calls were made, and where the time went
+- `meta`: which routing server answered, how many external calls were made, whether the route came from the cache, and where the time went
 
 Add `&mode=cheapest` for the absolute cheapest plan. The default, `balanced`, takes the fewest stops that cost no more than 1% above the cheapest: Seattle to Miami is 8 stops for $852.39, against 20 stops for $848.75. Each stop also says why it buys the amount it does, and how its price and location were worked out.
 
 Errors come back as `{"error": {"code", "message"}}`: 400 for input it can't read, 422 when there's no road route or a stretch longer than one tank has no station (with a `gap` saying where), 502 when the routing service is down.
+
+## Speed and external calls
+
+A new trip makes exactly one external call (OSRM) and takes about 1 to 1.5 seconds, nearly all of it the routing call. Repeating a trip makes none: the route is cached for a day by the resolved start and finish (so "Chicago" and "Chicago, IL" share it), and the answer takes about 100 ms. Only the route is cached, not the fuel plan, so reloading prices never serves a stale plan. The cache is in memory by default; set `REDIS_URL` to share it across server processes (`docker compose up -d` starts a Redis).
 
 ## What to send
 

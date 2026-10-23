@@ -1,5 +1,6 @@
 from unittest import mock
 
+from django.core.cache import cache
 from django.test import TestCase
 
 from fuel.routing import Route, RouteNotFound, RoutingUnavailable
@@ -16,6 +17,9 @@ def straight_route(start, finish, miles):
 
 class RouteApiTests(TestCase):
     # The stations are already in the test database: `migrate` loads them.
+
+    def setUp(self):
+        cache.clear()
 
     def get(self, **params):
         return self.client.get('/api/route/', params, HTTP_ACCEPT='application/json')

@@ -152,3 +152,14 @@ VEHICLE_RANGE_MILES = 500
 VEHICLE_MPG = 10.0
 # Used to price the starting tank only when no listed station is on the route: the file's median.
 FALLBACK_PRICE_PER_GALLON = '3.399'
+
+# Cache: routes from OSRM are kept for a day. In memory by default (each server
+# process has its own); set REDIS_URL to share one cache across processes.
+ROUTE_CACHE_SECONDS = 24 * 60 * 60
+CACHES = {
+    'default': (
+        {'BACKEND': 'django.core.cache.backends.redis.RedisCache', 'LOCATION': os.environ['REDIS_URL']}
+        if os.environ.get('REDIS_URL') else
+        {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}
+    ),
+}

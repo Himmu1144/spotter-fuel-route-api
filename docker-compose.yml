@@ -1,6 +1,8 @@
-# Optional: a local Postgres for running the app on the production database.
-# Start it with `docker compose up -d` (set POSTGRES_PORT if 5432 is taken), then set
-# DATABASE_URL=postgres://fuel:fuel@localhost:5432/fuel in .env
+# Optional: local Postgres and Redis, to run the app the way it would run in production.
+# Start them with `docker compose up -d` (set POSTGRES_PORT or REDIS_PORT if a port is
+# taken), then set in .env:
+#   DATABASE_URL=postgres://fuel:fuel@localhost:5432/fuel
+#   REDIS_URL=redis://localhost:6379/0
 services:
   db:
     image: postgres:18-alpine
@@ -10,3 +12,7 @@ services:
       POSTGRES_DB: fuel
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
+  cache:
+    image: redis:8-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"

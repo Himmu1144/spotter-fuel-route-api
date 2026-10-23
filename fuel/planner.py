@@ -118,6 +118,7 @@ def plan_trip(start_text, finish_text, mode='balanced'):
         'meta': {
             'routing_provider': route.provider,
             'external_calls': route.calls,
+            'route_cached': route.cached,
             'route_points': {'from_router': len(route.points), 'returned': len(line)},
             'stations_considered': len(along),
             'timing_ms': timings,
